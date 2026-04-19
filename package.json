@@ -4,6 +4,7 @@
   "main": "index.js",
   "author": "Muhammad Umar",
   "license": "MIT",
+  "type": "module",
   "devDependencies": {
     "@commitlint/cli": "^20.5.0",
     "@commitlint/config-conventional": "^20.5.0",
