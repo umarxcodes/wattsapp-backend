@@ -1,2 +1,2 @@
-const first3;
+const first = 3;
 console.log(first);
