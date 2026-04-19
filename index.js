@@ -1,3 +1,2 @@
-const first = 1;
+const first3;
 console.log(first);
-console.log("testing is fine");
