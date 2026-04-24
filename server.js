@@ -1,6 +1,4 @@
-// server.js
-/** Feature: Server startup with database connection and graceful shutdown */
-/** Feature: Error handling and process management */
+/* Server startup, database initialization, and graceful shutdown handling */
 
 import app from "./app.js";
 import connectDB from "./config/db.config.js";
@@ -10,65 +8,65 @@ const PORT = env.PORT;
 
 let server;
 
-// Start server function
+/* Start application server */
 const startServer = async () => {
   try {
-    // Connect to database first
+    /* Connect to database before starting server */
     await connectDB();
 
-    // Start HTTP server
+    /* Start HTTP server */
     server = app.listen(PORT, () => {
-      console.log("🚀 ============================================");
-      console.log(`🚀 Server running on port ${PORT}`);
-      console.log(`🚀 Environment: ${env.NODE_ENV}`);
-      console.log(`🚀 Health check: http://localhost:${PORT}/health`);
-      console.log("🚀 ============================================");
+      console.log("============================================");
+      console.log(`Server running on port ${PORT}`);
+      console.log(`Environment: ${env.NODE_ENV}`);
+      console.log(`Health check: /health`);
+      console.log("============================================");
     });
 
-    // Handle server errors
+    /* Handle runtime server errors */
     server.on("error", (error) => {
-      console.error("❌ Server error:", error);
+      console.error("Server error:", error);
       process.exit(1);
     });
   } catch (error) {
-    console.error("❌ Failed to start server:", error);
+    console.error("Failed to start server:", error);
     process.exit(1);
   }
 };
 
-// Graceful shutdown function
+/* Graceful shutdown handler */
 const gracefulShutdown = async (signal) => {
-  console.log(`🛑 Received ${signal}, shutting down gracefully...`);
+  console.log(`Received ${signal}, shutting down gracefully...`);
 
   if (server) {
     server.close(async () => {
-      console.log("✅ HTTP server closed");
+      console.log("HTTP server closed");
 
-      // Close database connections
+      /* Close MongoDB connection */
       try {
         const mongoose = (await import("mongoose")).default;
         await mongoose.connection.close();
-        console.log("✅ Database connection closed");
+        console.log("Database connection closed");
       } catch (error) {
-        console.error("❌ Error closing database:", error);
+        console.error("Error closing database:", error);
       }
 
-      // Close Redis connections
+      /* Close Redis connection */
       try {
         const redis = (await import("./config/redis.config.js")).default;
         await redis.quit();
-        console.log("✅ Redis connection closed");
+        console.log("Redis connection closed");
       } catch (error) {
-        console.error("❌ Error closing Redis:", error);
+        console.error("Error closing Redis:", error);
       }
 
-      console.log("✅ Graceful shutdown complete");
+      console.log("Graceful shutdown complete");
       process.exit(0);
     });
 
-    // Force close after 10 seconds
+    /* Force shutdown fallback after timeout */
     setTimeout(() => {
-      console.error("❌ Forced shutdown after timeout");
+      console.error("Forced shutdown due to timeout");
       process.exit(1);
     }, 10000);
   } else {
@@ -76,23 +74,21 @@ const gracefulShutdown = async (signal) => {
   }
 };
 
-// Handle unhandled promise rejections
+/* Handle unhandled promise rejections */
 process.on("unhandledRejection", (reason, promise) => {
-  console.error("❌ Unhandled Rejection at:", promise, "reason:", reason);
+  console.error("Unhandled Rejection:", reason, promise);
   gracefulShutdown("unhandledRejection");
 });
 
-// Handle uncaught exceptions
+/* Handle uncaught exceptions */
 process.on("uncaughtException", (error) => {
-  console.error("❌ Uncaught Exception:", error);
+  console.error("Uncaught Exception:", error);
   gracefulShutdown("uncaughtException");
 });
 
-// Handle termination signals
+/* Handle termination signals */
 process.on("SIGTERM", () => gracefulShutdown("SIGTERM"));
 process.on("SIGINT", () => gracefulShutdown("SIGINT"));
 
-// Start the server
+/* Initialize server */
 startServer();
-
-/* =====*** Server initialized ***==== */

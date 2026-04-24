@@ -1,16 +1,16 @@
 // controllers/auth.controller.js
-/** Feature: Authentication controllers with proper error handling */
-/** Feature: Cookie management and response formatting */
+// ====*** Authentication Controllers ***===
 
 import authService from "../services/auth.service.js";
 import { ApiResponse } from "../utils/ApiResponse.util.js";
 import asyncHandler from "express-async-handler";
+import env from "../config/env.config.js";
 
 const cookieOptions = {
   httpOnly: true,
-  secure: process.env.NODE_ENV === "production",
+  secure: env.NODE_ENV === "production",
   sameSite: "strict",
-  maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+  maxAge: 7 * 24 * 60 * 60 * 1000,
 };
 
 export const register = asyncHandler(async (req, res) => {

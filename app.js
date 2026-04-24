@@ -1,11 +1,10 @@
-// app.js
-/** Feature: Express application setup with security and middleware */
-/** Feature: CORS, security headers, and route configuration */
+/* Express application setup with security, middleware, and route configuration */
 
 import express from "express";
 import helmet from "helmet";
 import cors from "cors";
 import cookieParser from "cookie-parser";
+
 import authRoutes from "./routes/auth.routes.js";
 import { errorHandler } from "./middlewares/error.middleware.js";
 import { generalLimiter } from "./middlewares/rateLimiter.middleware.js";
@@ -13,10 +12,10 @@ import env from "./config/env.config.js";
 
 const app = express();
 
-// Trust proxy for accurate IP addresses
+/* Trust proxy (important for rate limiting and real IP detection behind proxies) */
 app.set("trust proxy", 1);
 
-// Security middlewares
+/* Security middlewares */
 app.use(
   helmet({
     contentSecurityPolicy: {
@@ -35,6 +34,7 @@ app.use(
   })
 );
 
+/* CORS configuration */
 app.use(
   cors({
     origin: env.CLIENT_URL,
@@ -44,15 +44,15 @@ app.use(
   })
 );
 
-// General rate limiting
+/* Global rate limiting for API routes */
 app.use("/api/", generalLimiter);
 
-// Body parsing
+/* Request parsing middlewares */
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true, limit: "10mb" }));
 app.use(cookieParser());
 
-// Health check endpoint
+/* Health check endpoint */
 app.get("/health", (req, res) => {
   res.status(200).json({
     status: "OK",
@@ -62,10 +62,10 @@ app.get("/health", (req, res) => {
   });
 });
 
-// API routes
+/* API routes */
 app.use("/api/v1/auth", authRoutes);
 
-// 404 handler
+/* 404 handler for undefined routes */
 app.use((req, res) => {
   res.status(404).json({
     success: false,
@@ -75,8 +75,7 @@ app.use((req, res) => {
   });
 });
 
-// Global error handler (must be last)
+/* Global error handling middleware (must be last) */
 app.use(errorHandler);
 
 export default app;
-/* =====*** Express app configured ***==== */
