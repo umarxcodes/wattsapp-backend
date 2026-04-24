@@ -1,44 +1,39 @@
-// middlewares/validation.middleware.js
-/** Feature: Request validation middleware using Zod schemas */
-/** Feature: Automatic validation of request body, params, query, and files */
+/* Request validation middleware using Zod schema validation */
 
 import { ApiError } from "../utils/ApiResponse.util.js";
 
-/**
- * Validation middleware factory
- * @param {object} schema - Zod schema object with body, params, query, cookies, or file properties
- * @returns {function} Express middleware function
- */
+/* Create reusable middleware for validating incoming requests */
 export const validate = (schema) => {
   return async (req, res, next) => {
     try {
-      // Validate request body
+      /* Validate request body data */
       if (schema.body) {
         req.body = await schema.body.parseAsync(req.body);
       }
 
-      // Validate route parameters
+      /* Validate route parameters */
       if (schema.params) {
         req.params = await schema.params.parseAsync(req.params);
       }
 
-      // Validate query parameters
+      /* Validate query string parameters */
       if (schema.query) {
         req.query = await schema.query.parseAsync(req.query);
       }
 
-      // Validate cookies
+      /* Validate request cookies */
       if (schema.cookies) {
         req.cookies = await schema.cookies.parseAsync(req.cookies);
       }
 
-      // Validate file
+      /* Validate uploaded file if present */
       if (schema.file && req.file) {
         req.file = await schema.file.parseAsync(req.file);
       }
 
       next();
     } catch (error) {
+      /* Handle Zod validation errors with structured response */
       if (error.name === "ZodError") {
         const errors = error.errors.map((err) => ({
           field: err.path.join("."),
@@ -48,9 +43,8 @@ export const validate = (schema) => {
         return next(new ApiError(400, "Validation failed", errors));
       }
 
+      /* Forward unexpected errors to global error handler */
       next(error);
     }
   };
 };
-
-/* =====*** Validation middleware implemented ***==== */

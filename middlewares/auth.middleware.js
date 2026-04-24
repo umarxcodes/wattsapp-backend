@@ -1,41 +1,48 @@
-// middlewares/auth.middleware.js
-/** Feature: JWT token verification and role-based access control */
-/** Feature: Token blacklisting and user validation */
+/* Authentication and authorization middleware configuration */
 
 import { verifyAccessToken as verifyToken } from "../utils/jwt.utils.js";
 import redis from "../config/redis.config.js";
 import { ApiError } from "../utils/ApiResponse.util.js";
 import User from "../models/user.model.js";
+import env from "../config/env.config.js";
 
-/**
- * Middleware to verify access token and attach user to request
- */
+/* Verify access token and attach authenticated user to request */
 export const authenticate = async (req, res, next) => {
   try {
+    /* Extract authorization header from request */
     const authHeader = req.headers.authorization;
+
+    /* Validate bearer token existence */
     if (!authHeader || !authHeader.startsWith("Bearer ")) {
       throw new ApiError(401, "Access token required");
     }
 
+    /* Extract JWT token from authorization header */
     const token = authHeader.split(" ")[1];
 
-    // Check if token is blacklisted
+    /* Check whether token exists in Redis blacklist */
     const isBlacklisted = await redis.get(`blacklist:${token}`);
     if (isBlacklisted) {
       throw new ApiError(401, "Token has been revoked");
     }
 
+    /* Verify and decode access token */
     const decoded = verifyToken(token);
 
+    /* Fetch authenticated user from database */
     const user = await User.findById(decoded.id);
+
+    /* Validate user existence */
     if (!user) {
       throw new ApiError(401, "User not found");
     }
 
+    /* Prevent access for deactivated accounts */
     if (!user.isActive) {
       throw new ApiError(401, "Account has been deactivated");
     }
 
+    /* Attach safe user data to request object */
     req.user = {
       id: user._id.toString(),
       phone: user.phone,
@@ -49,27 +56,33 @@ export const authenticate = async (req, res, next) => {
   }
 };
 
-/**
- * Optional authentication middleware - doesn't throw error if no token
- */
+/* Optional authentication without throwing error for missing token */
 export const optionalAuthenticate = async (req, res, next) => {
   try {
+    /* Extract authorization header if available */
     const authHeader = req.headers.authorization;
+
+    /* Continue request if no token is provided */
     if (!authHeader || !authHeader.startsWith("Bearer ")) {
       return next();
     }
 
+    /* Extract JWT token */
     const token = authHeader.split(" ")[1];
 
-    // Check if token is blacklisted
+    /* Skip authentication for blacklisted tokens */
     const isBlacklisted = await redis.get(`blacklist:${token}`);
     if (isBlacklisted) {
       return next();
     }
 
+    /* Verify and decode token */
     const decoded = verifyToken(token);
 
+    /* Fetch user from database */
     const user = await User.findById(decoded.id);
+
+    /* Attach user only if account is valid and active */
     if (user && user.isActive) {
       req.user = {
         id: user._id.toString(),
@@ -81,22 +94,20 @@ export const optionalAuthenticate = async (req, res, next) => {
 
     next();
   } catch {
-    // Don't throw error for optional auth
+    /* Ignore authentication failure for optional access */
     next();
   }
 };
 
-/**
- * Factory function to require specific roles
- * @param {string[]} allowedRoles - Array of allowed roles
- * @returns {function} Middleware function
- */
+/* Create middleware for restricting access by user roles */
 export const requireRole = (allowedRoles) => {
   return (req, res, next) => {
+    /* Ensure user is authenticated before role validation */
     if (!req.user) {
       throw new ApiError(401, "Authentication required");
     }
 
+    /* Validate user role against allowed roles */
     if (!allowedRoles.includes(req.user.role)) {
       throw new ApiError(
         403,
@@ -108,19 +119,17 @@ export const requireRole = (allowedRoles) => {
   };
 };
 
-/**
- * Middleware to require admin role
- */
+/* Restrict access to admin users only */
 export const requireAdmin = requireRole(["admin"]);
 
-/**
- * Middleware to require verified user
- */
+/* Restrict access to verified users only */
 export const requireVerified = (req, res, next) => {
+  /* Ensure authentication exists */
   if (!req.user) {
     throw new ApiError(401, "Authentication required");
   }
 
+  /* Ensure user has completed phone verification */
   if (!req.user.isVerified) {
     throw new ApiError(403, "Phone number verification required");
   }
@@ -128,20 +137,17 @@ export const requireVerified = (req, res, next) => {
   next();
 };
 
-/* =====*** Auth middlewares implemented ***==== */
-
-/**
- * Middleware to validate request using Zod schema
- * @param {z.ZodSchema} schema - The Zod schema
- * @returns {function} Middleware function
- */
+/* Validate incoming request using provided Zod schema */
 export const validate = (schema) => async (req, res, next) => {
   try {
+    /* Validate request body, params, and query */
     await schema.parseAsync(req);
+
     next();
   } catch (error) {
+    /* Format validation errors into a readable message */
     const message = error.errors.map((err) => err.message).join(", ");
+
     next(new ApiError(400, message));
   }
 };
-/* =====* user *==== */
