@@ -1,6 +1,11 @@
 import { redis } from "../../config/redis.config.js";
 import { User } from "../../models/user.model.js";
-import { verifyToken } from "../../utils/jwt.utils.js";
+import { hashToken, verifyToken } from "../../utils/jwt.utils.js";
+
+// ====*** Socket Token Blocklist Helper ***=====
+
+const getAccessTokenBlocklistKey = (token) =>
+  `token_blocklist:${hashToken(token)}`;
 
 // ====*** JWT Socket Handshake Auth ***=====
 
@@ -14,7 +19,7 @@ export const authenticateSocket = async (socket, next) => {
       return;
     }
 
-    const isBlacklisted = await redis.get(`blacklist:${token}`);
+    const isBlacklisted = await redis.get(getAccessTokenBlocklistKey(token));
 
     if (isBlacklisted) {
       socket.disconnect(true);
@@ -23,11 +28,20 @@ export const authenticateSocket = async (socket, next) => {
     }
 
     const decoded = verifyToken(token);
-    const user = await User.findById(decoded.id).select(
-      "_id displayName phone isActive isVerified"
-    );
+    const user = await User.findById(decoded.id)
+      .select("_id displayName phone isActive isVerified +sessionInvalidatedAt")
+      .lean();
 
     if (!user || !user.isActive || !user.isVerified) {
+      socket.disconnect(true);
+      next(new Error("Socket authentication failed"));
+      return;
+    }
+
+    if (
+      user.sessionInvalidatedAt &&
+      decoded.iat * 1000 < new Date(user.sessionInvalidatedAt).getTime()
+    ) {
       socket.disconnect(true);
       next(new Error("Socket authentication failed"));
       return;

@@ -8,6 +8,7 @@ import { env } from "../config/env.config.js";
 
 const OTP_TTL_SECONDS = 300;
 const OTP_MAX_ATTEMPTS = 5;
+const OTP_RESEND_COOLDOWN_SECONDS = env.OTP_RESEND_COOLDOWN_SECONDS;
 
 // ====*** Twilio Client ***=====
 
@@ -20,6 +21,7 @@ const twilioClient =
 
 const getOtpKey = (phone) => `otp:${phone}`;
 const getOtpAttemptsKey = (phone) => `otp_attempts:${phone}`;
+const getOtpCooldownKey = (phone) => `otp_cooldown:${phone}`;
 
 // ====*** Generate OTP ***=====
 
@@ -70,6 +72,42 @@ export const storeOtp = async (phone, otp) => {
     .set(getOtpKey(phone), otpHash, "EX", OTP_TTL_SECONDS)
     .set(getOtpAttemptsKey(phone), "0", "EX", OTP_TTL_SECONDS)
     .exec();
+};
+
+// ====*** OTP Resend Cooldown Helpers ***=====
+
+/**
+ * Determine whether an OTP resend is currently allowed.
+ * @param {string} phone
+ * @returns {Promise<boolean>}
+ */
+export const canResendOtp = async (phone) => {
+  const cooldown = await redis.ttl(getOtpCooldownKey(phone));
+  return cooldown <= 0;
+};
+
+/**
+ * Start the OTP resend cooldown timer.
+ * @param {string} phone
+ * @returns {Promise<void>}
+ */
+export const setOtpResendCooldown = async (phone) => {
+  await redis.set(
+    getOtpCooldownKey(phone),
+    "1",
+    "EX",
+    OTP_RESEND_COOLDOWN_SECONDS
+  );
+};
+
+/**
+ * Get remaining OTP resend cooldown time.
+ * @param {string} phone
+ * @returns {Promise<number>}
+ */
+export const getOtpResendCooldown = async (phone) => {
+  const cooldown = await redis.ttl(getOtpCooldownKey(phone));
+  return cooldown > 0 ? cooldown : 0;
 };
 
 // ====*** Verify OTP ***=====

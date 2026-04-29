@@ -23,6 +23,7 @@ import { authenticate } from "../middlewares/auth.middleware.js";
 import {
   editMessageLimiter,
   mediaUploadLimiter,
+  reactionLimiter,
   sendMessageLimiter,
 } from "../middlewares/rateLimiter.middleware.js";
 import { validate } from "../middlewares/validation.middleware.js";
@@ -159,11 +160,13 @@ messageRouter.post(
 
 messageRouter.post(
   "/messages/:messageId/reaction",
+  reactionLimiter,
   validate(reactionSchema),
   addReactionController
 );
 messageRouter.delete(
   "/messages/:messageId/reaction",
+  reactionLimiter,
   validate(reactionSchema),
   addReactionController
 );

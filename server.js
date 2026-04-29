@@ -3,7 +3,11 @@ import { app } from "./app.js";
 import { connectDB, disconnectDB } from "./config/db.config.js";
 import { env } from "./config/env.config.js";
 import { connectRedis, disconnectRedis } from "./config/redis.config.js";
-import { initializeSocket } from "./socket/index.js";
+import {
+  attachSocketRedisAdapter,
+  closeSocket,
+  initializeSocket,
+} from "./socket/index.js";
 
 // ====*** HTTP Server Creation ***=====
 
@@ -14,6 +18,7 @@ export const io = initializeSocket(httpServer);
 
 export const startServer = async () => {
   await Promise.all([connectDB(), connectRedis()]);
+  await attachSocketRedisAdapter();
 
   return new Promise((resolve, reject) => {
     httpServer.listen(env.PORT, () => {
@@ -41,7 +46,7 @@ export const stopServer = async () => {
     });
   });
 
-  await Promise.all([disconnectRedis(), disconnectDB()]);
+  await Promise.all([closeSocket(), disconnectRedis(), disconnectDB()]);
 };
 
 // ====*** Process Signal Handling ***=====

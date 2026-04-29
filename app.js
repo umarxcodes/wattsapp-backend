@@ -1,6 +1,7 @@
 import cookieParser from "cookie-parser";
 import cors from "cors";
 import express from "express";
+import mongoSanitize from "express-mongo-sanitize";
 import helmet from "helmet";
 import { env } from "./config/env.config.js";
 import { errorHandler } from "./middlewares/error.middleware.js";
@@ -13,6 +14,7 @@ import { messageRouter } from "./routes/message.routes.js";
 // ====*** Express Application Setup ***=====
 
 export const app = express();
+const allowedOrigins = [env.CLIENT_URL, env.SOCKET_CORS_ORIGIN];
 
 app.set("trust proxy", 1);
 
@@ -21,21 +23,40 @@ app.set("trust proxy", 1);
 app.use(
   helmet({
     crossOriginResourcePolicy: false,
+    contentSecurityPolicy: false,
+    hsts: {
+      maxAge: 31536000,
+      includeSubDomains: true,
+      preload: true,
+    },
+    referrerPolicy: {
+      policy: "no-referrer",
+    },
   })
 );
 
 app.use(
   cors({
-    origin: env.CLIENT_URL,
+    origin: (origin, callback) => {
+      if (!origin || allowedOrigins.includes(origin)) {
+        callback(null, true);
+        return;
+      }
+
+      callback(new Error("CORS origin is not allowed"));
+    },
     credentials: true,
+    methods: ["GET", "POST", "PATCH", "DELETE"],
+    allowedHeaders: ["Content-Type", "Authorization"],
   })
 );
 
 // ====*** Request Parsing Middleware ***=====
 
-app.use(express.json({ limit: "10mb" }));
-app.use(express.urlencoded({ extended: true, limit: "10mb" }));
+app.use(express.json({ limit: "100kb" }));
+app.use(express.urlencoded({ extended: true, limit: "100kb" }));
 app.use(cookieParser());
+app.use(mongoSanitize());
 
 // ====*** API Rate Limiting ***=====
 

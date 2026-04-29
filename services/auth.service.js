@@ -1,12 +1,23 @@
 import { redis } from "../config/redis.config.js";
 import { User } from "../models/user.model.js";
 import { ApiError } from "../utils/ApiResponse.util.js";
-import { deleteAvatar, uploadAvatar } from "../utils/cloudinary.util.js";
-import { comparePassword, hashPassword } from "../utils/hash.utils.js";
-import { generateTokenPair, verifyRefreshToken } from "../utils/jwt.utils.js";
 import {
+  deleteAvatar,
+  uploadAvatar,
+  validateAvatarUpload,
+} from "../utils/cloudinary.util.js";
+import { comparePassword, hashPassword } from "../utils/hash.utils.js";
+import {
+  generateTokenPair,
+  hashToken,
+  verifyRefreshToken,
+} from "../utils/jwt.utils.js";
+import {
+  canResendOtp,
   generateOtp,
+  getOtpResendCooldown,
   sendOtpSms,
+  setOtpResendCooldown,
   storeOtp,
   verifyOtp,
 } from "../utils/otp.util.js";
@@ -14,6 +25,11 @@ import {
 // ====*** Auth Cookie TTL Constant ***=====
 
 export const REFRESH_TOKEN_TTL_SECONDS = 7 * 24 * 60 * 60;
+const ACCESS_TOKEN_TTL_SECONDS = 15 * 60;
+const getRefreshTokenBlocklistKey = (token) =>
+  `token_blocklist:${hashToken(token)}`;
+const getAccessTokenBlocklistKey = (token) =>
+  `token_blocklist:${hashToken(token)}`;
 
 // ====*** Register User ***=====
 
@@ -38,6 +54,7 @@ export const register = async (
   });
 
   if (avatarFile) {
+    await validateAvatarUpload(avatarFile.buffer);
     const uploadResult = await uploadAvatar(
       avatarFile.buffer,
       `avatar_${phone.replace(/\W/g, "")}_${Date.now()}`
@@ -55,6 +72,7 @@ export const register = async (
     const otp = generateOtp();
     await storeOtp(phone, otp);
     await sendOtpSms(phone, otp);
+    await setOtpResendCooldown(phone);
   } catch {
     if (user.avatar?.publicId) {
       await deleteAvatar(user.avatar.publicId).catch(() => {});
@@ -111,9 +129,18 @@ export const resendOtp = async (phone) => {
     throw ApiError.badRequest("Account is already verified");
   }
 
+  if (!(await canResendOtp(phone))) {
+    const retryAfterSeconds = await getOtpResendCooldown(phone);
+    throw new ApiError(
+      429,
+      `OTP resend is on cooldown. Try again in ${retryAfterSeconds} seconds`
+    );
+  }
+
   const otp = generateOtp();
   await storeOtp(phone, otp);
   await sendOtpSms(phone, otp);
+  await setOtpResendCooldown(phone);
 
   return {
     message: "OTP sent successfully",
@@ -170,7 +197,9 @@ export const login = async (phone, password) => {
 // ====*** Refresh Session ***=====
 
 export const refreshToken = async (refreshTokenValue) => {
-  const isBlacklisted = await redis.get(`blacklist:${refreshTokenValue}`);
+  const isBlacklisted = await redis.get(
+    getRefreshTokenBlocklistKey(refreshTokenValue)
+  );
 
   if (isBlacklisted) {
     throw ApiError.unauthorized("Refresh token has been revoked");
@@ -200,6 +229,12 @@ export const refreshToken = async (refreshTokenValue) => {
   }
 
   const nextTokens = generateTokenPair(user);
+  await redis.set(
+    getRefreshTokenBlocklistKey(refreshTokenValue),
+    "1",
+    "EX",
+    REFRESH_TOKEN_TTL_SECONDS
+  );
   user.refreshTokenHash = await hashPassword(nextTokens.refreshToken);
   await user.save();
 
@@ -212,7 +247,7 @@ export const refreshToken = async (refreshTokenValue) => {
 
 // ====*** Logout User ***=====
 
-export const logout = async (refreshTokenValue) => {
+export const logout = async (refreshTokenValue, accessTokenValue = null) => {
   let decoded;
 
   try {
@@ -229,11 +264,20 @@ export const logout = async (refreshTokenValue) => {
   }
 
   await redis.set(
-    `blacklist:${refreshTokenValue}`,
+    getRefreshTokenBlocklistKey(refreshTokenValue),
     "1",
     "EX",
     REFRESH_TOKEN_TTL_SECONDS
   );
+
+  if (accessTokenValue) {
+    await redis.set(
+      getAccessTokenBlocklistKey(accessTokenValue),
+      "1",
+      "EX",
+      ACCESS_TOKEN_TTL_SECONDS
+    );
+  }
 
   return {
     message: "Logged out successfully",
@@ -254,6 +298,7 @@ export const forgotPassword = async (phone) => {
   const otp = generateOtp();
   await storeOtp(phone, otp);
   await sendOtpSms(phone, otp);
+  await setOtpResendCooldown(phone);
 
   return {
     message: "If the phone number exists, an OTP has been sent",
@@ -277,6 +322,7 @@ export const resetPassword = async (phone, otp, newPassword) => {
 
   user.password = newPassword;
   user.refreshTokenHash = null;
+  user.sessionInvalidatedAt = new Date();
   await user.save();
 
   return {
@@ -312,6 +358,7 @@ export const updateProfile = async (userId, updates, avatarFile) => {
   }
 
   if (avatarFile) {
+    await validateAvatarUpload(avatarFile.buffer);
     if (user.avatar?.publicId) {
       await deleteAvatar(user.avatar.publicId).catch(() => {});
     }
@@ -342,7 +389,11 @@ export const updateAvatar = async (userId, avatarFile) =>
 
 // ====*** Deactivate Account ***=====
 
-export const deactivateAccount = async (userId) => {
+export const deactivateAccount = async (
+  userId,
+  accessTokenValue = null,
+  refreshTokenValue = null
+) => {
   const user = await User.findById(userId);
 
   if (!user) {
@@ -352,7 +403,26 @@ export const deactivateAccount = async (userId) => {
   user.isActive = false;
   user.isOnline = false;
   user.refreshTokenHash = null;
+  user.sessionInvalidatedAt = new Date();
   await user.save();
+
+  if (refreshTokenValue) {
+    await redis.set(
+      getRefreshTokenBlocklistKey(refreshTokenValue),
+      "1",
+      "EX",
+      REFRESH_TOKEN_TTL_SECONDS
+    );
+  }
+
+  if (accessTokenValue) {
+    await redis.set(
+      getAccessTokenBlocklistKey(accessTokenValue),
+      "1",
+      "EX",
+      ACCESS_TOKEN_TTL_SECONDS
+    );
+  }
 
   return {
     message: "Account deactivated successfully",

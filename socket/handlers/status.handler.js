@@ -2,6 +2,7 @@ import { User } from "../../models/user.model.js";
 import { Conversation } from "../../models/conversation.model.js";
 import { getUserContactIds } from "../../services/message.service.js";
 import {
+  getUserSocketId,
   getUserOnlineStatus,
   ONLINE_STATUS_REFRESH_INTERVAL_MS,
   refreshUserOnlineTTL,
@@ -71,6 +72,12 @@ const handleUserDisconnect = async (io, socket) => {
   const userId = socket.user?.id;
 
   if (!userId) {
+    return;
+  }
+
+  const activeSocketId = await getUserSocketId(userId);
+
+  if (activeSocketId && activeSocketId !== socket.id) {
     return;
   }
 
