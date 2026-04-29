@@ -1,36 +1,43 @@
-/* Authentication routes with validation, rate limiting, and security middleware */
-
 import express from "express";
 import multer from "multer";
-
 import {
-  register,
-  verifyOtp,
-  resendOtp,
-  login,
-  refreshToken,
-  logout,
-  forgotPassword,
-  resetPassword,
-  getProfile,
-  updateProfile,
-  updateAvatar,
-  deactivateAccount,
+  deactivateAccountController,
+  forgotPasswordController,
+  getProfileController,
+  loginController,
+  logoutController,
+  refreshTokenController,
+  registerController,
+  resendOtpController,
+  resetPasswordController,
+  updateAvatarController,
+  updateProfileController,
+  verifyOtpController,
 } from "../controllers/auth.controller.js";
-
 import { authenticate, requireAdmin } from "../middlewares/auth.middleware.js";
-import { validate } from "../middlewares/validation.middleware.js";
-
 import {
+  forgotPasswordLimiter,
   loginLimiter,
+  otpLimiter,
   registerLimiter,
   resendOtpLimiter,
-  forgotPasswordLimiter,
 } from "../middlewares/rateLimiter.middleware.js";
+import { validate } from "../middlewares/validation.middleware.js";
+import {
+  forgotPasswordSchema,
+  loginSchema,
+  logoutSchema,
+  refreshTokenSchema,
+  registerSchema,
+  resendOtpSchema,
+  resetPasswordSchema,
+  updateAvatarSchema,
+  updateProfileSchema,
+  verifyOtpSchema,
+} from "../validation/auth.validator.js";
 
-import * as validators from "../validation/auth.validator.js";
+// ====*** Auth Upload Middleware ***=====
 
-/* Configure in-memory file upload storage with size limit */
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: {
@@ -38,91 +45,82 @@ const upload = multer({
   },
 });
 
-const router = express.Router();
+export const authRouter = express.Router();
 
-/* Public authentication routes */
+// ====*** Public Auth Routes ***=====
 
-/* User registration with rate limiting and optional avatar upload */
-router.post(
+authRouter.post(
   "/register",
   registerLimiter,
   upload.single("avatar"),
-  validate(validators.registerSchema),
-  register
+  validate(registerSchema),
+  registerController
 );
 
-/* OTP verification for account activation */
-router.post("/verify-otp", validate(validators.verifyOtpSchema), verifyOtp);
+authRouter.post(
+  "/verify-otp",
+  otpLimiter,
+  validate(verifyOtpSchema),
+  verifyOtpController
+);
 
-/* Resend OTP with rate limiting protection */
-router.post(
+authRouter.post(
   "/resend-otp",
   resendOtpLimiter,
-  validate(validators.resendOtpSchema),
-  resendOtp
+  validate(resendOtpSchema),
+  resendOtpController
 );
 
-/* User login with rate limiting and validation */
-router.post("/login", loginLimiter, validate(validators.loginSchema), login);
+authRouter.post("/login", loginLimiter, validate(loginSchema), loginController);
 
-/* Refresh authentication token */
-router.post(
+authRouter.post(
   "/refresh-token",
-  validate(validators.refreshTokenSchema),
-  refreshToken
+  validate(refreshTokenSchema),
+  refreshTokenController
 );
 
-/* User logout and session termination */
-router.post("/logout", validate(validators.logoutSchema), logout);
+authRouter.post("/logout", validate(logoutSchema), logoutController);
 
-/* Password recovery request with rate limiting */
-router.post(
+authRouter.post(
   "/forgot-password",
   forgotPasswordLimiter,
-  validate(validators.forgotPasswordSchema),
-  forgotPassword
+  validate(forgotPasswordSchema),
+  forgotPasswordController
 );
 
-/* Password reset using secure token */
-router.post(
+authRouter.post(
   "/reset-password",
-  validate(validators.resetPasswordSchema),
-  resetPassword
+  validate(resetPasswordSchema),
+  resetPasswordController
 );
 
-/* Protected user routes (authentication required) */
+// ====*** Protected Auth Routes ***=====
 
-/* Get authenticated user profile */
-router.get("/profile", authenticate, getProfile);
+authRouter.get("/profile", authenticate, getProfileController);
 
-/* Update user profile with optional avatar upload */
-router.patch(
+authRouter.patch(
   "/profile",
   authenticate,
   upload.single("avatar"),
-  validate(validators.updateProfileSchema),
-  updateProfile
+  validate(updateProfileSchema),
+  updateProfileController
 );
 
-/* Update user avatar only */
-router.patch(
+authRouter.patch(
   "/avatar",
   authenticate,
   upload.single("avatar"),
-  validate(validators.updateAvatarSchema),
-  updateAvatar
+  validate(updateAvatarSchema),
+  updateAvatarController
 );
 
-/* Deactivate user account */
-router.delete("/account", authenticate, deactivateAccount);
+authRouter.delete("/account", authenticate, deactivateAccountController);
 
-/* Admin-only routes */
+// ====*** Admin Routes ***=====
 
-/* Placeholder for user management functionality */
-router.get("/admin/users", authenticate, requireAdmin, (req, res) => {
+authRouter.get("/admin/users", authenticate, requireAdmin, (req, res) => {
   res.json({
-    message: "Admin route - implement user management",
+    success: true,
+    message: "Admin route placeholder",
   });
 });
-
-export default router;

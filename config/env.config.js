@@ -1,71 +1,53 @@
-/* Environment configuration with validation and centralized application settings */
-
 import "dotenv/config";
 import { z } from "zod";
 
-/* Define schema for validating required environment variables */
+// ====*** Environment Variables Schema ***=====
+
 const envSchema = z.object({
-  /* Application environment configuration */
   NODE_ENV: z
     .enum(["development", "production", "test"])
     .default("development"),
-
-  /* Application server port configuration */
-  PORT: z.coerce.number().min(1000).max(9999).default(3000),
-
-  /* MongoDB database connection string */
-  MONGODB_URI: z.string().url("Invalid MongoDB URI"),
-
-  /* Redis cache and session connection string */
-  REDIS_URL: z.string().url("Invalid Redis URL"),
-
-  /* JWT access token secret for authentication */
+  PORT: z.coerce.number().int().min(1).max(65535).default(3000),
+  MONGODB_URI: z.string().min(1, "MONGODB_URI is required"),
+  REDIS_URL: z.string().min(1, "REDIS_URL is required"),
   ACCESS_TOKEN_SECRET: z
     .string()
-    .min(32, "Access token secret must be at least 32 characters"),
-
-  /* JWT refresh token secret for long-term sessions */
+    .min(32, "ACCESS_TOKEN_SECRET must be at least 32 characters"),
   REFRESH_TOKEN_SECRET: z
     .string()
-    .min(32, "Refresh token secret must be at least 32 characters"),
-
-  /* Password hashing salt rounds for bcrypt security */
-  BCRYPT_SALT_ROUNDS: z.coerce.number().min(8).max(20).default(12),
-
-  /* Twilio service credentials for OTP and messaging */
-  TWILIO_ACCOUNT_SID: z.string().min(1, "Twilio Account SID is required"),
-  TWILIO_AUTH_TOKEN: z.string().min(1, "Twilio Auth Token is required"),
-  TWILIO_PHONE_NUMBER: z
+    .min(32, "REFRESH_TOKEN_SECRET must be at least 32 characters"),
+  ACCESS_TOKEN_EXPIRES_IN: z.string().default("15m"),
+  REFRESH_TOKEN_EXPIRES_IN: z.string().default("7d"),
+  BCRYPT_SALT_ROUNDS: z.coerce.number().int().min(8).max(15).default(12),
+  TWILIO_ACCOUNT_SID: z.string().optional().default(""),
+  TWILIO_AUTH_TOKEN: z.string().optional().default(""),
+  TWILIO_PHONE_NUMBER: z.string().optional().default(""),
+  CLOUDINARY_CLOUD_NAME: z.string().optional().default(""),
+  CLOUDINARY_API_KEY: z.string().optional().default(""),
+  CLOUDINARY_API_SECRET: z.string().optional().default(""),
+  CLIENT_URL: z.string().url("CLIENT_URL must be a valid URL"),
+  SOCKET_CORS_ORIGIN: z
     .string()
-    .regex(/^\+\d{10,15}$/, "Invalid phone number format"),
-
-  /* Cloudinary service credentials for media uploads */
-  CLOUDINARY_CLOUD_NAME: z.string().min(1, "Cloudinary Cloud Name is required"),
-  CLOUDINARY_API_KEY: z.string().min(1, "Cloudinary API Key is required"),
-  CLOUDINARY_API_SECRET: z.string().min(1, "Cloudinary API Secret is required"),
-
-  /* Frontend client application URL */
-  CLIENT_URL: z.string().url("Invalid client URL"),
+    .url("SOCKET_CORS_ORIGIN must be a valid URL")
+    .optional(),
 });
 
-/* Store validated environment variables after schema parsing */
-let validatedEnv;
+// ====*** Environment Validation ***=====
 
-try {
-  /* Validate all environment variables against schema rules */
-  validatedEnv = envSchema.parse(process.env);
-} catch (error) {
-  /* Handle invalid or missing environment variables gracefully */
-  console.error(
-    "Environment validation failed:",
-    error.errors
-      .map((err) => `${err.path.join(".")}: ${err.message}`)
-      .join(", ")
-  );
+const parsedEnv = envSchema.safeParse(process.env);
 
-  /* Stop application startup if critical configuration is invalid */
-  process.exit(1);
+if (!parsedEnv.success) {
+  const issues = parsedEnv.error.issues
+    .map((issue) => `${issue.path.join(".")}: ${issue.message}`)
+    .join(", ");
+
+  throw new Error(`Environment validation failed: ${issues}`);
 }
 
-/* Export validated environment variables for application-wide usage */
-export default validatedEnv;
+// ====*** Environment Export ***=====
+
+export const env = {
+  ...parsedEnv.data,
+  SOCKET_CORS_ORIGIN:
+    parsedEnv.data.SOCKET_CORS_ORIGIN || parsedEnv.data.CLIENT_URL,
+};

@@ -1,124 +1,123 @@
-// controllers/auth.controller.js
-// ====*** Authentication Controllers ***===
-
-import authService from "../services/auth.service.js";
-import { ApiResponse } from "../utils/ApiResponse.util.js";
 import asyncHandler from "express-async-handler";
-import env from "../config/env.config.js";
+import { env } from "../config/env.config.js";
+import {
+  deactivateAccount,
+  forgotPassword,
+  getProfile,
+  login,
+  logout,
+  refreshToken,
+  register,
+  resendOtp,
+  resetPassword,
+  updateAvatar,
+  updateProfile,
+  verifyUserOtp,
+} from "../services/auth.service.js";
+import { ApiResponse } from "../utils/ApiResponse.util.js";
 
-const cookieOptions = {
+// ====*** Refresh Token Cookie Options ***=====
+
+const refreshTokenCookieOptions = {
   httpOnly: true,
   secure: env.NODE_ENV === "production",
   sameSite: "strict",
   maxAge: 7 * 24 * 60 * 60 * 1000,
 };
 
-export const register = asyncHandler(async (req, res) => {
+// ====*** Auth Controller Actions ***=====
+
+export const registerController = asyncHandler(async (req, res) => {
   const { phone, countryCode, password, displayName } = req.body;
-  const result = await authService.register(
+  const result = await register(
     phone,
     countryCode,
     password,
     displayName,
     req.file
   );
+
   res.status(201).json(ApiResponse.created(result.message));
 });
 
-export const verifyOtp = asyncHandler(async (req, res) => {
+export const verifyOtpController = asyncHandler(async (req, res) => {
   const { phone, otp } = req.body;
-  const result = await authService.verifyOtp(phone, otp);
+  const result = await verifyUserOtp(phone, otp);
 
-  res.cookie("refreshToken", result.refreshToken, cookieOptions);
+  res.cookie("refreshToken", result.refreshToken, refreshTokenCookieOptions);
   res.status(200).json(
-    ApiResponse.success(200, result.message, {
+    ApiResponse.ok(result.message, {
       accessToken: result.accessToken,
       user: result.user,
     })
   );
 });
 
-export const resendOtp = asyncHandler(async (req, res) => {
-  const { phone } = req.body;
-  const result = await authService.resendOtp(phone);
+export const resendOtpController = asyncHandler(async (req, res) => {
+  const result = await resendOtp(req.body.phone);
   res.status(200).json(ApiResponse.ok(result.message));
 });
 
-export const login = asyncHandler(async (req, res) => {
-  const { phone, password } = req.body;
-  const result = await authService.login(phone, password);
+export const loginController = asyncHandler(async (req, res) => {
+  const result = await login(req.body.phone, req.body.password);
 
-  res.cookie("refreshToken", result.refreshToken, cookieOptions);
+  res.cookie("refreshToken", result.refreshToken, refreshTokenCookieOptions);
   res.status(200).json(
-    ApiResponse.success(200, result.message, {
+    ApiResponse.ok(result.message, {
       accessToken: result.accessToken,
       user: result.user,
     })
   );
 });
 
-export const refreshToken = asyncHandler(async (req, res) => {
-  const { refreshToken } = req.cookies;
-  const result = await authService.refreshToken(refreshToken);
+export const refreshTokenController = asyncHandler(async (req, res) => {
+  const result = await refreshToken(req.cookies.refreshToken);
 
-  res.cookie("refreshToken", result.refreshToken, cookieOptions);
-  res.status(200).json(
-    ApiResponse.success(200, result.message, {
-      accessToken: result.accessToken,
-    })
-  );
-});
-
-export const logout = asyncHandler(async (req, res) => {
-  const { refreshToken } = req.cookies;
-  const result = await authService.logout(refreshToken);
-
-  res.clearCookie("refreshToken");
-  res.status(200).json(ApiResponse.ok(result.message));
-});
-
-export const forgotPassword = asyncHandler(async (req, res) => {
-  const { phone } = req.body;
-  const result = await authService.forgotPassword(phone);
-  res.status(200).json(ApiResponse.ok(result.message));
-});
-
-export const resetPassword = asyncHandler(async (req, res) => {
-  const { phone, otp, newPassword } = req.body;
-  const result = await authService.resetPassword(phone, otp, newPassword);
-  res.status(200).json(ApiResponse.ok(result.message));
-});
-
-export const getProfile = asyncHandler(async (req, res) => {
-  const result = await authService.getProfile(req.user.id);
+  res.cookie("refreshToken", result.refreshToken, refreshTokenCookieOptions);
   res
     .status(200)
-    .json(ApiResponse.success(200, "Profile retrieved successfully", result));
+    .json(ApiResponse.ok(result.message, { accessToken: result.accessToken }));
 });
 
-export const updateProfile = asyncHandler(async (req, res) => {
-  const { displayName } = req.body;
-  const result = await authService.updateProfile(
+export const logoutController = asyncHandler(async (req, res) => {
+  const result = await logout(req.cookies.refreshToken);
+  res.clearCookie("refreshToken", refreshTokenCookieOptions);
+  res.status(200).json(ApiResponse.ok(result.message));
+});
+
+export const forgotPasswordController = asyncHandler(async (req, res) => {
+  const result = await forgotPassword(req.body.phone);
+  res.status(200).json(ApiResponse.ok(result.message));
+});
+
+export const resetPasswordController = asyncHandler(async (req, res) => {
+  const { phone, otp, newPassword } = req.body;
+  const result = await resetPassword(phone, otp, newPassword);
+  res.status(200).json(ApiResponse.ok(result.message));
+});
+
+export const getProfileController = asyncHandler(async (req, res) => {
+  const result = await getProfile(req.user.id);
+  res.status(200).json(ApiResponse.ok("Profile fetched successfully", result));
+});
+
+export const updateProfileController = asyncHandler(async (req, res) => {
+  const result = await updateProfile(
     req.user.id,
-    { displayName },
+    { displayName: req.body.displayName },
     req.file
   );
-  res
-    .status(200)
-    .json(ApiResponse.success(200, result.message, { user: result.user }));
+
+  res.status(200).json(ApiResponse.ok(result.message, { user: result.user }));
 });
 
-export const updateAvatar = asyncHandler(async (req, res) => {
-  const result = await authService.updateAvatar(req.user.id, req.file);
-  res
-    .status(200)
-    .json(ApiResponse.success(200, result.message, { user: result.user }));
+export const updateAvatarController = asyncHandler(async (req, res) => {
+  const result = await updateAvatar(req.user.id, req.file);
+  res.status(200).json(ApiResponse.ok(result.message, { user: result.user }));
 });
 
-export const deactivateAccount = asyncHandler(async (req, res) => {
-  const result = await authService.deactivateAccount(req.user.id);
-  res.clearCookie("refreshToken");
+export const deactivateAccountController = asyncHandler(async (req, res) => {
+  const result = await deactivateAccount(req.user.id);
+  res.clearCookie("refreshToken", refreshTokenCookieOptions);
   res.status(200).json(ApiResponse.ok(result.message));
 });
-
-/* =====*** Auth controllers implemented ***==== */

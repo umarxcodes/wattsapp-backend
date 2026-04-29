@@ -1,51 +1,36 @@
-/* Authentication and authorization middleware configuration */
-
-import { verifyAccessToken as verifyToken } from "../utils/jwt.utils.js";
-import redis from "../config/redis.config.js";
+import { redis } from "../config/redis.config.js";
+import { User } from "../models/user.model.js";
 import { ApiError } from "../utils/ApiResponse.util.js";
-import User from "../models/user.model.js";
-import env from "../config/env.config.js";
+import { verifyAccessToken } from "../utils/jwt.utils.js";
 
-/* Verify access token and attach authenticated user to request */
+// ====*** HTTP Authentication Middleware ***=====
+
 export const authenticate = async (req, res, next) => {
   try {
-    /* Extract authorization header from request */
-    const authHeader = req.headers.authorization;
+    const authorization = req.headers.authorization;
 
-    /* Validate bearer token existence */
-    if (!authHeader || !authHeader.startsWith("Bearer ")) {
-      throw new ApiError(401, "Access token required");
+    if (!authorization?.startsWith("Bearer ")) {
+      throw ApiError.unauthorized("Access token is required");
     }
 
-    /* Extract JWT token from authorization header */
-    const token = authHeader.split(" ")[1];
-
-    /* Check whether token exists in Redis blacklist */
+    const token = authorization.slice(7);
     const isBlacklisted = await redis.get(`blacklist:${token}`);
+
     if (isBlacklisted) {
-      throw new ApiError(401, "Token has been revoked");
+      throw ApiError.unauthorized("Token has been revoked");
     }
 
-    /* Verify and decode access token */
-    const decoded = verifyToken(token);
-
-    /* Fetch authenticated user from database */
+    const decoded = verifyAccessToken(token);
     const user = await User.findById(decoded.id);
 
-    /* Validate user existence */
-    if (!user) {
-      throw new ApiError(401, "User not found");
+    if (!user || !user.isActive) {
+      throw ApiError.unauthorized("User is not authorized");
     }
 
-    /* Prevent access for deactivated accounts */
-    if (!user.isActive) {
-      throw new ApiError(401, "Account has been deactivated");
-    }
-
-    /* Attach safe user data to request object */
     req.user = {
       id: user._id.toString(),
       phone: user.phone,
+      displayName: user.displayName,
       role: user.role,
       isVerified: user.isVerified,
     };
@@ -56,37 +41,33 @@ export const authenticate = async (req, res, next) => {
   }
 };
 
-/* Optional authentication without throwing error for missing token */
+// ====*** Optional Authentication Middleware ***=====
+
 export const optionalAuthenticate = async (req, res, next) => {
   try {
-    /* Extract authorization header if available */
-    const authHeader = req.headers.authorization;
+    const authorization = req.headers.authorization;
 
-    /* Continue request if no token is provided */
-    if (!authHeader || !authHeader.startsWith("Bearer ")) {
-      return next();
+    if (!authorization?.startsWith("Bearer ")) {
+      next();
+      return;
     }
 
-    /* Extract JWT token */
-    const token = authHeader.split(" ")[1];
-
-    /* Skip authentication for blacklisted tokens */
+    const token = authorization.slice(7);
     const isBlacklisted = await redis.get(`blacklist:${token}`);
+
     if (isBlacklisted) {
-      return next();
+      next();
+      return;
     }
 
-    /* Verify and decode token */
-    const decoded = verifyToken(token);
-
-    /* Fetch user from database */
+    const decoded = verifyAccessToken(token);
     const user = await User.findById(decoded.id);
 
-    /* Attach user only if account is valid and active */
-    if (user && user.isActive) {
+    if (user?.isActive) {
       req.user = {
         id: user._id.toString(),
         phone: user.phone,
+        displayName: user.displayName,
         role: user.role,
         isVerified: user.isVerified,
       };
@@ -94,60 +75,42 @@ export const optionalAuthenticate = async (req, res, next) => {
 
     next();
   } catch {
-    /* Ignore authentication failure for optional access */
     next();
   }
 };
 
-/* Create middleware for restricting access by user roles */
-export const requireRole = (allowedRoles) => {
-  return (req, res, next) => {
-    /* Ensure user is authenticated before role validation */
-    if (!req.user) {
-      throw new ApiError(401, "Authentication required");
-    }
+// ====*** Role Authorization Middleware ***=====
 
-    /* Validate user role against allowed roles */
-    if (!allowedRoles.includes(req.user.role)) {
-      throw new ApiError(
-        403,
-        `Access denied. Required roles: ${allowedRoles.join(", ")}`
-      );
-    }
-
-    next();
-  };
-};
-
-/* Restrict access to admin users only */
-export const requireAdmin = requireRole(["admin"]);
-
-/* Restrict access to verified users only */
-export const requireVerified = (req, res, next) => {
-  /* Ensure authentication exists */
+export const requireRole = (roles) => (req, res, next) => {
   if (!req.user) {
-    throw new ApiError(401, "Authentication required");
+    next(ApiError.unauthorized("Authentication required"));
+    return;
   }
 
-  /* Ensure user has completed phone verification */
-  if (!req.user.isVerified) {
-    throw new ApiError(403, "Phone number verification required");
+  if (!roles.includes(req.user.role)) {
+    next(
+      ApiError.forbidden("You do not have permission to access this resource")
+    );
+    return;
   }
 
   next();
 };
 
-/* Validate incoming request using provided Zod schema */
-export const validate = (schema) => async (req, res, next) => {
-  try {
-    /* Validate request body, params, and query */
-    await schema.parseAsync(req);
+export const requireAdmin = requireRole(["admin"]);
 
-    next();
-  } catch (error) {
-    /* Format validation errors into a readable message */
-    const message = error.errors.map((err) => err.message).join(", ");
+// ====*** Verified User Middleware ***=====
 
-    next(new ApiError(400, message));
+export const requireVerified = (req, res, next) => {
+  if (!req.user) {
+    next(ApiError.unauthorized("Authentication required"));
+    return;
   }
+
+  if (!req.user.isVerified) {
+    next(ApiError.forbidden("Phone verification is required"));
+    return;
+  }
+
+  next();
 };
