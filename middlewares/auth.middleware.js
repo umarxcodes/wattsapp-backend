@@ -1,7 +1,12 @@
 import { redis } from "../config/redis.config.js";
 import { User } from "../models/user.model.js";
 import { ApiError } from "../utils/ApiResponse.util.js";
-import { verifyAccessToken } from "../utils/jwt.utils.js";
+import { hashToken, verifyAccessToken } from "../utils/jwt.utils.js";
+
+// ====*** Token Blocklist Helper ***=====
+
+const getAccessTokenBlocklistKey = (token) =>
+  `token_blocklist:${hashToken(token)}`;
 
 // ====*** HTTP Authentication Middleware ***=====
 
@@ -14,17 +19,26 @@ export const authenticate = async (req, res, next) => {
     }
 
     const token = authorization.slice(7);
-    const isBlacklisted = await redis.get(`blacklist:${token}`);
+    const isBlacklisted = await redis.get(getAccessTokenBlocklistKey(token));
 
     if (isBlacklisted) {
       throw ApiError.unauthorized("Token has been revoked");
     }
 
     const decoded = verifyAccessToken(token);
-    const user = await User.findById(decoded.id);
+    const user = await User.findById(decoded.id)
+      .select("+sessionInvalidatedAt")
+      .lean();
 
     if (!user || !user.isActive) {
       throw ApiError.unauthorized("User is not authorized");
+    }
+
+    if (
+      user.sessionInvalidatedAt &&
+      decoded.iat * 1000 < new Date(user.sessionInvalidatedAt).getTime()
+    ) {
+      throw ApiError.unauthorized("Session is no longer valid");
     }
 
     req.user = {
@@ -53,7 +67,7 @@ export const optionalAuthenticate = async (req, res, next) => {
     }
 
     const token = authorization.slice(7);
-    const isBlacklisted = await redis.get(`blacklist:${token}`);
+    const isBlacklisted = await redis.get(getAccessTokenBlocklistKey(token));
 
     if (isBlacklisted) {
       next();
@@ -61,9 +75,15 @@ export const optionalAuthenticate = async (req, res, next) => {
     }
 
     const decoded = verifyAccessToken(token);
-    const user = await User.findById(decoded.id);
+    const user = await User.findById(decoded.id)
+      .select("+sessionInvalidatedAt")
+      .lean();
 
-    if (user?.isActive) {
+    if (
+      user?.isActive &&
+      (!user.sessionInvalidatedAt ||
+        decoded.iat * 1000 >= new Date(user.sessionInvalidatedAt).getTime())
+    ) {
       req.user = {
         id: user._id.toString(),
         phone: user.phone,

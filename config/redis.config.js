@@ -7,6 +7,7 @@ export const redis = new Redis(env.REDIS_URL, {
   lazyConnect: true,
   maxRetriesPerRequest: 3,
   enableAutoPipelining: true,
+  keyPrefix: `${env.REDIS_KEY_PREFIX}:`,
   retryStrategy: (times) => Math.min(times * 200, 2000),
   reconnectOnError: (error) => error.message.includes("READONLY"),
 });

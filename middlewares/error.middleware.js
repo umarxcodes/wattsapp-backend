@@ -33,10 +33,7 @@ export const errorHandler = (error, req, res, next) => {
       `${duplicateField || "Resource"} already exists`
     );
   } else if (!(error instanceof ApiError)) {
-    normalizedError = new ApiError(
-      500,
-      error.message || "Internal server error"
-    );
+    normalizedError = new ApiError(500, "Internal server error");
   }
 
   if (env.NODE_ENV !== "test") {

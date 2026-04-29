@@ -72,6 +72,11 @@ const userSchema = new mongoose.Schema(
       type: Date,
       default: null,
     },
+    sessionInvalidatedAt: {
+      type: Date,
+      default: null,
+      select: false,
+    },
     loginAttempts: {
       type: Number,
       default: 0,
@@ -149,6 +154,7 @@ userSchema.methods.toJSON = function () {
   delete value.refreshTokenHash;
   delete value.loginAttempts;
   delete value.lockUntil;
+  delete value.sessionInvalidatedAt;
   return value;
 };
 

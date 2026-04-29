@@ -24,7 +24,7 @@ const otpSchema = z
 
 const avatarFileSchema = z.object({
   buffer: z.instanceof(Buffer),
-  mimetype: z.enum(["image/jpeg", "image/png", "image/webp"]),
+  mimetype: z.string().min(1),
   size: z.number().max(5 * 1024 * 1024, "Avatar size must not exceed 5MB"),
 });
 

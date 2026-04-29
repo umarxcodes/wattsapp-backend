@@ -1,6 +1,7 @@
 import { Group } from "../models/group.model.js";
 import { User } from "../models/user.model.js";
 import { ApiError } from "../utils/ApiResponse.util.js";
+import { assertUsersCanCommunicate } from "./block.service.js";
 
 // ====*** Group Membership Helpers ***=====
 
@@ -8,7 +9,9 @@ const ensureUsersExist = async (userIds) => {
   const users = await User.find({
     _id: { $in: userIds },
     isActive: true,
-  }).select("_id");
+  })
+    .select("_id")
+    .lean();
 
   if (users.length !== userIds.length) {
     throw ApiError.badRequest("One or more users do not exist");
@@ -20,7 +23,8 @@ const getGroupById = async (groupId) => {
     .populate("participants", "phone displayName avatar isOnline lastSeen")
     .populate("admins", "phone displayName avatar")
     .populate("owner", "phone displayName avatar")
-    .populate("lastMessage");
+    .populate("lastMessage")
+    .lean(false);
 
   if (!group || group.conversationType !== "group") {
     throw ApiError.notFound("Group not found");
@@ -91,7 +95,8 @@ export const getUserGroups = async (userId) =>
     .populate("participants", "phone displayName avatar isOnline lastSeen")
     .populate("admins", "phone displayName avatar")
     .populate("owner", "phone displayName avatar")
-    .populate("lastMessage");
+    .populate("lastMessage")
+    .lean();
 
 // ====*** Update Group Details ***=====
 
@@ -127,6 +132,11 @@ export const addGroupMembers = async (groupId, userId, memberIds) => {
   }
 
   await ensureUsersExist(uniqueNewMemberIds);
+  await Promise.all(
+    uniqueNewMemberIds.map((memberId) =>
+      assertUsersCanCommunicate(userId, memberId)
+    )
+  );
   group.participants.push(...uniqueNewMemberIds);
   await group.save();
 
@@ -163,6 +173,10 @@ export const removeGroupMember = async (groupId, actorId, memberId) => {
 export const promoteGroupAdmin = async (groupId, actorId, memberId) => {
   const group = await assertGroupAdmin(groupId, actorId);
 
+  if (group.owner._id.toString() !== actorId.toString()) {
+    throw ApiError.forbidden("Only the group owner can promote another admin");
+  }
+
   if (!group.hasParticipant(memberId)) {
     throw ApiError.notFound("Group member not found");
   }
@@ -179,6 +193,10 @@ export const promoteGroupAdmin = async (groupId, actorId, memberId) => {
 
 export const demoteGroupAdmin = async (groupId, actorId, memberId) => {
   const group = await assertGroupAdmin(groupId, actorId);
+
+  if (group.owner._id.toString() !== actorId.toString()) {
+    throw ApiError.forbidden("Only the group owner can demote an admin");
+  }
 
   if (group.owner._id.toString() === memberId.toString()) {
     throw ApiError.forbidden("Group owner cannot be demoted");

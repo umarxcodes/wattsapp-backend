@@ -43,6 +43,7 @@ export const setUserOnline = async (userId) => {
 
 /**
  * Mark a user offline and persist last seen in Redis.
+ * This key is intentionally stored without TTL because "last seen" must survive restarts.
  * @param {string} userId
  * @returns {Promise<string>}
  */

@@ -1,5 +1,6 @@
 import asyncHandler from "express-async-handler";
 import { env } from "../config/env.config.js";
+import { getIO } from "../socket/index.js";
 import {
   deactivateAccount,
   forgotPassword,
@@ -15,6 +16,7 @@ import {
   verifyUserOtp,
 } from "../services/auth.service.js";
 import { ApiResponse } from "../utils/ApiResponse.util.js";
+import { getUserSocketId } from "../utils/onlineStatus.util.js";
 
 // ====*** Refresh Token Cookie Options ***=====
 
@@ -24,6 +26,13 @@ const refreshTokenCookieOptions = {
   sameSite: "strict",
   maxAge: 7 * 24 * 60 * 60 * 1000,
 };
+
+// ====*** Access Token Extraction Helper ***=====
+
+const getBearerToken = (req) =>
+  req.headers.authorization?.startsWith("Bearer ")
+    ? req.headers.authorization.slice(7)
+    : null;
 
 // ====*** Auth Controller Actions ***=====
 
@@ -80,7 +89,7 @@ export const refreshTokenController = asyncHandler(async (req, res) => {
 });
 
 export const logoutController = asyncHandler(async (req, res) => {
-  const result = await logout(req.cookies.refreshToken);
+  const result = await logout(req.cookies.refreshToken, getBearerToken(req));
   res.clearCookie("refreshToken", refreshTokenCookieOptions);
   res.status(200).json(ApiResponse.ok(result.message));
 });
@@ -117,7 +126,18 @@ export const updateAvatarController = asyncHandler(async (req, res) => {
 });
 
 export const deactivateAccountController = asyncHandler(async (req, res) => {
-  const result = await deactivateAccount(req.user.id);
+  const result = await deactivateAccount(
+    req.user.id,
+    getBearerToken(req),
+    req.cookies.refreshToken || null
+  );
+
+  const activeSocketId = await getUserSocketId(req.user.id);
+  const io = getIO();
+  if (activeSocketId && io?.sockets.sockets.get(activeSocketId)) {
+    io.sockets.sockets.get(activeSocketId).disconnect(true);
+  }
+
   res.clearCookie("refreshToken", refreshTokenCookieOptions);
   res.status(200).json(ApiResponse.ok(result.message));
 });

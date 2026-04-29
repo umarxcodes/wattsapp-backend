@@ -3,8 +3,12 @@ import { Conversation } from "../models/conversation.model.js";
 import { Message } from "../models/message.model.js";
 import { User } from "../models/user.model.js";
 import { ApiError } from "../utils/ApiResponse.util.js";
-import { uploadMessageMedia } from "../utils/cloudinary.util.js";
+import {
+  uploadMessageMedia,
+  validateMessageMediaUpload,
+} from "../utils/cloudinary.util.js";
 import { assertUsersCanCommunicate } from "./block.service.js";
+import path from "node:path";
 
 // ====*** Message Service Constants ***=====
 
@@ -114,7 +118,8 @@ export const getUserConversations = async (userId, page = 1, limit = 30) => {
           path: "senderId",
           select: "phone displayName avatar",
         },
-      }),
+      })
+      .lean(),
     Conversation.countDocuments(filter),
   ]);
 
@@ -203,15 +208,16 @@ const buildMessagePayload = async (
   }
 
   if (file) {
+    const detectedType = await validateMessageMediaUpload(file.buffer);
     const uploadResult = await uploadMessageMedia(file.buffer);
     payload.mediaUrl = uploadResult.secure_url;
     payload.mediaPublicId = uploadResult.public_id;
-    payload.mediaMimeType = file.mimetype;
+    payload.mediaMimeType = detectedType.mime;
     payload.mediaSize = file.size;
-    payload.mediaName = file.originalname;
-    payload.messageType = file.mimetype.startsWith("image/")
+    payload.mediaName = path.basename(file.originalname || "upload");
+    payload.messageType = detectedType.mime.startsWith("image/")
       ? "image"
-      : file.mimetype.startsWith("audio/")
+      : detectedType.mime.startsWith("audio/")
         ? "voice"
         : "file";
   }
@@ -291,7 +297,8 @@ export const getConversationMessages = async (
     .limit(limit + 1)
     .populate("senderId", "phone displayName avatar")
     .populate("replyTo", "text senderId messageType")
-    .populate("receiptStatus.userId", "phone displayName avatar");
+    .populate("receiptStatus.userId", "phone displayName avatar")
+    .lean();
 
   const hasMore = results.length > limit;
   const messages = hasMore ? results.slice(0, limit) : results;
@@ -468,14 +475,25 @@ export const uploadMediaMessage = async (conversationId, senderId, file) =>
 // ====*** Add Reaction ***=====
 
 export const addReaction = async (messageId, userId, emoji) => {
-  const message = await Message.findById(messageId);
+  const message = await Message.findById(messageId).populate("conversationId");
 
   if (!message || message.isDeleted) {
     throw ApiError.notFound("Message not found");
   }
 
+  if (
+    message.conversationId?.conversationType === "direct" &&
+    message.senderId.toString() !== userId.toString()
+  ) {
+    const otherParticipantId = message.conversationId.participants.find(
+      (participantId) => participantId.toString() !== userId.toString()
+    );
+    await assertUsersCanCommunicate(userId, otherParticipantId);
+  }
+
   const existingReactionIndex = message.reactions.findIndex(
-    (item) => item.userId.toString() === userId.toString()
+    (item) =>
+      item.userId.toString() === userId.toString() && item.emoji === emoji
   );
 
   if (!emoji) {
@@ -483,8 +501,13 @@ export const addReaction = async (messageId, userId, emoji) => {
       message.reactions.splice(existingReactionIndex, 1);
     }
   } else if (existingReactionIndex >= 0) {
-    message.reactions[existingReactionIndex].emoji = emoji;
+    return Message.findById(message._id)
+      .populate("senderId", "phone displayName avatar")
+      .populate("reactions.userId", "phone displayName avatar");
   } else {
+    message.reactions = message.reactions.filter(
+      (item) => item.userId.toString() !== userId.toString()
+    );
     message.reactions.push({ userId, emoji });
   }
 

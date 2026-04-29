@@ -1,5 +1,6 @@
 import {
   addReaction,
+  assertConversationCanReceiveMessage,
   findConversationForUser,
   getConversationParticipantIds,
   sendMessage,
@@ -56,6 +57,11 @@ const registerSendMessageHandler = (io, socket) => {
 const registerTypingHandlers = (io, socket) => {
   socket.on("typing_start", async ({ conversationId }) => {
     try {
+      const conversation = await findConversationForUser(
+        conversationId,
+        socket.user.id
+      );
+      await assertConversationCanReceiveMessage(conversation, socket.user.id);
       socket.to(conversationId).emit("typing_indicator", {
         conversationId,
         userId: socket.user.id,
@@ -69,6 +75,11 @@ const registerTypingHandlers = (io, socket) => {
 
   socket.on("typing_stop", async ({ conversationId }) => {
     try {
+      const conversation = await findConversationForUser(
+        conversationId,
+        socket.user.id
+      );
+      await assertConversationCanReceiveMessage(conversation, socket.user.id);
       socket.to(conversationId).emit("typing_indicator", {
         conversationId,
         userId: socket.user.id,

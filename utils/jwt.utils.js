@@ -1,5 +1,10 @@
 import jwt from "jsonwebtoken";
 import { env } from "../config/env.config.js";
+import { createHash } from "node:crypto";
+
+// ====*** JWT Algorithm Constants ***=====
+
+const JWT_ALGORITHM = "HS256";
 
 // ====*** Access Token Helpers ***=====
 
@@ -10,6 +15,7 @@ import { env } from "../config/env.config.js";
  */
 export const generateAccessToken = (payload) =>
   jwt.sign(payload, env.ACCESS_TOKEN_SECRET, {
+    algorithm: JWT_ALGORITHM,
     expiresIn: env.ACCESS_TOKEN_EXPIRES_IN,
   });
 
@@ -19,7 +25,9 @@ export const generateAccessToken = (payload) =>
  * @returns {object}
  */
 export const verifyAccessToken = (token) =>
-  jwt.verify(token, env.ACCESS_TOKEN_SECRET);
+  jwt.verify(token, env.ACCESS_TOKEN_SECRET, {
+    algorithms: [JWT_ALGORITHM],
+  });
 
 // ====*** Refresh Token Helpers ***=====
 
@@ -30,6 +38,7 @@ export const verifyAccessToken = (token) =>
  */
 export const generateRefreshToken = (payload) =>
   jwt.sign(payload, env.REFRESH_TOKEN_SECRET, {
+    algorithm: JWT_ALGORITHM,
     expiresIn: env.REFRESH_TOKEN_EXPIRES_IN,
   });
 
@@ -39,7 +48,9 @@ export const generateRefreshToken = (payload) =>
  * @returns {object}
  */
 export const verifyRefreshToken = (token) =>
-  jwt.verify(token, env.REFRESH_TOKEN_SECRET);
+  jwt.verify(token, env.REFRESH_TOKEN_SECRET, {
+    algorithms: [JWT_ALGORITHM],
+  });
 
 // ====*** Token Pair Helpers ***=====
 
@@ -76,3 +87,13 @@ export const generateTokenPair = (user) => {
  * @returns {object}
  */
 export const verifyToken = verifyAccessToken;
+
+// ====*** Token Hash Helpers ***=====
+
+/**
+ * Create a deterministic token fingerprint for Redis storage.
+ * @param {string} token
+ * @returns {string}
+ */
+export const hashToken = (token) =>
+  createHash("sha256").update(token).digest("hex");

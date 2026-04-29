@@ -1,4 +1,5 @@
 import { v2 as cloudinary } from "cloudinary";
+import { fileTypeFromBuffer } from "file-type";
 import { Readable } from "stream";
 import { env } from "../config/env.config.js";
 
@@ -96,6 +97,72 @@ export const uploadMessageMedia = (buffer, options = {}) =>
     folder: "wattsapp/messages",
     ...options,
   });
+
+// ====*** Upload File Type Detection ***=====
+
+const ALLOWED_AVATAR_MIME_TYPES = new Set([
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+]);
+const ALLOWED_MESSAGE_MIME_TYPES = new Set([
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+  "image/gif",
+  "audio/mpeg",
+  "audio/wav",
+  "audio/ogg",
+  "audio/webm",
+  "application/pdf",
+]);
+
+/**
+ * Detect the real file type from the binary payload.
+ * @param {Buffer} buffer
+ * @returns {Promise<{mime: string, ext: string}>}
+ */
+export const detectFileType = async (buffer) => {
+  const detectedType = await fileTypeFromBuffer(buffer);
+
+  if (!detectedType) {
+    throw new Error("Unable to determine uploaded file type");
+  }
+
+  return detectedType;
+};
+
+// ====*** Upload Validation Helpers ***=====
+
+/**
+ * Validate an avatar upload using magic bytes instead of client-provided MIME.
+ * @param {Buffer} buffer
+ * @returns {Promise<{mime: string, ext: string}>}
+ */
+export const validateAvatarUpload = async (buffer) => {
+  const detectedType = await detectFileType(buffer);
+
+  if (!ALLOWED_AVATAR_MIME_TYPES.has(detectedType.mime)) {
+    throw new Error("Unsupported avatar file type");
+  }
+
+  return detectedType;
+};
+
+/**
+ * Validate a message upload using magic bytes instead of client-provided MIME.
+ * @param {Buffer} buffer
+ * @returns {Promise<{mime: string, ext: string}>}
+ */
+export const validateMessageMediaUpload = async (buffer) => {
+  const detectedType = await detectFileType(buffer);
+
+  if (!ALLOWED_MESSAGE_MIME_TYPES.has(detectedType.mime)) {
+    throw new Error("Unsupported message media file type");
+  }
+
+  return detectedType;
+};
 
 // ====*** Delete Asset ***=====
 
