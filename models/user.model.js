@@ -1,192 +1,161 @@
-/* User model with authentication, validation, and security features */
-
 import mongoose from "mongoose";
-import { hashPassword, comparePassword } from "../utils/hash.utils.js";
+import { comparePassword, hashPassword } from "../utils/hash.utils.js";
 
-/* Define user schema structure and validation rules */
+// ====*** User Schema ***=====
+
 const userSchema = new mongoose.Schema(
   {
-    /* User phone number (unique identifier for authentication) */
     phone: {
       type: String,
-      required: [true, "Phone number is required"],
+      required: true,
       unique: true,
-      lowercase: true,
       trim: true,
-      validate: {
-        validator: function (v) {
-          return /^\+\d{10,15}$/.test(v);
-        },
-        message: "Invalid phone number format",
-      },
+      lowercase: true,
+      match: /^\+\d{10,15}$/,
     },
-
-    /* Country code for user phone number */
     countryCode: {
       type: String,
-      required: [true, "Country code is required"],
-      uppercase: true,
+      required: true,
       trim: true,
-      minlength: 2,
-      maxlength: 3,
+      uppercase: true,
     },
-
-    /* Hashed user password (excluded from queries by default) */
     password: {
       type: String,
-      required: [true, "Password is required"],
-      minlength: [6, "Password must be at least 6 characters"],
+      required: true,
+      minlength: 6,
       select: false,
     },
-
-    /* Display name shown in application */
     displayName: {
       type: String,
-      required: [true, "Display name is required"],
+      required: true,
       trim: true,
-      minlength: [2, "Display name must be at least 2 characters"],
-      maxlength: [50, "Display name cannot exceed 50 characters"],
+      minlength: 2,
+      maxlength: 50,
     },
-
-    /* User profile avatar information */
     avatar: {
       url: {
         type: String,
-        validate: {
-          validator: function (v) {
-            return !v || /^https?:\/\/.+/.test(v);
-          },
-          message: "Invalid avatar URL",
-        },
+        default: null,
       },
-      publicId: String,
+      publicId: {
+        type: String,
+        default: null,
+      },
     },
-
-    /* Account verification status */
     isVerified: {
       type: Boolean,
       default: false,
     },
-
-    /* Account active/inactive state */
     isActive: {
       type: Boolean,
       default: true,
     },
-
-    /* User role for authorization control */
+    isOnline: {
+      type: Boolean,
+      default: false,
+    },
     role: {
       type: String,
-      enum: {
-        values: ["user", "admin"],
-        message: "Role must be either user or admin",
-      },
+      enum: ["user", "admin"],
       default: "user",
     },
-
-    /* Last seen timestamp for user activity tracking */
     lastSeen: {
       type: Date,
       default: Date.now,
     },
-
-    /* Hashed refresh token for session management */
     refreshTokenHash: {
       type: String,
+      default: null,
       select: false,
     },
-
-    /* Timestamp for password change tracking */
-    passwordChangedAt: Date,
-
-    /* Login attempt counter for brute-force protection */
+    passwordChangedAt: {
+      type: Date,
+      default: null,
+    },
     loginAttempts: {
       type: Number,
       default: 0,
+      select: false,
     },
-
-    /* Account lock expiration time */
-    lockUntil: Date,
+    lockUntil: {
+      type: Date,
+      default: null,
+      select: false,
+    },
   },
   {
     timestamps: true,
   }
 );
 
-/* Database indexes for performance optimization */
+// ====*** User Indexes ***=====
+
 userSchema.index({ phone: 1 });
 userSchema.index({ displayName: "text" });
-userSchema.index({ isActive: 1, isVerified: 1 });
+userSchema.index({ isOnline: 1, lastSeen: -1 });
 
-/* Virtual field to check if account is currently locked */
+// ====*** User Virtuals ***=====
+
 userSchema.virtual("isLocked").get(function () {
-  return !!(this.lockUntil && this.lockUntil > Date.now());
+  return Boolean(this.lockUntil && this.lockUntil.getTime() > Date.now());
 });
 
-/* Hash password before saving user document */
+// ====*** User Password Hooks ***=====
+
 userSchema.pre("save", async function (next) {
-  if (this.isModified("password")) {
-    try {
-      this.password = await hashPassword(this.password);
-    } catch (error) {
-      return next(error);
-    }
+  if (!this.isModified("password")) {
+    next();
+    return;
   }
-  next();
-});
 
-/* Track password change timestamp for security validation */
-userSchema.pre("save", function (next) {
-  if (this.isModified("password") && !this.isNew) {
+  this.password = await hashPassword(this.password);
+
+  if (!this.isNew) {
     this.passwordChangedAt = new Date();
   }
+
   next();
 });
 
-/* Compare plain password with hashed password */
-userSchema.methods.comparePassword = async function (candidatePassword) {
+// ====*** User Instance Methods ***=====
+
+userSchema.methods.comparePassword = function (candidatePassword) {
   return comparePassword(candidatePassword, this.password);
 };
 
-/* Increment login attempts and apply account lock if necessary */
-userSchema.methods.incLoginAttempts = function () {
-  if (this.loginAttempts >= 5) {
-    this.lockUntil = Date.now() + 2 * 60 * 60 * 1000;
+userSchema.methods.incLoginAttempts = async function () {
+  const nextAttempts = (this.loginAttempts || 0) + 1;
+  this.loginAttempts = nextAttempts;
+
+  if (nextAttempts >= 5) {
+    this.lockUntil = new Date(Date.now() + 2 * 60 * 60 * 1000);
   }
 
-  this.loginAttempts += 1;
   return this.save();
 };
 
-/* Reset login attempts after successful authentication */
-userSchema.methods.resetLoginAttempts = function () {
+userSchema.methods.resetLoginAttempts = async function () {
   this.loginAttempts = 0;
-  this.lockUntil = undefined;
+  this.lockUntil = null;
   return this.save();
 };
 
-/* Customize JSON output to remove sensitive fields */
 userSchema.methods.toJSON = function () {
-  const userObject = this.toObject();
-
-  delete userObject.__v;
-  delete userObject.password;
-  delete userObject.refreshTokenHash;
-  delete userObject.loginAttempts;
-  delete userObject.lockUntil;
-
-  userObject.id = userObject._id;
-  delete userObject._id;
-
-  return userObject;
+  const value = this.toObject({ virtuals: true });
+  value.id = value._id.toString();
+  delete value._id;
+  delete value.__v;
+  delete value.password;
+  delete value.refreshTokenHash;
+  delete value.loginAttempts;
+  delete value.lockUntil;
+  return value;
 };
 
-/* Find user by phone number (case-insensitive normalization) */
+// ====*** User Static Methods ***=====
+
 userSchema.statics.findByPhone = function (phone) {
   return this.findOne({ phone: phone.toLowerCase() });
 };
 
-/* Create User model from schema */
-const User = mongoose.model("User", userSchema);
-
-export default User;
+export const User = mongoose.models.User || mongoose.model("User", userSchema);

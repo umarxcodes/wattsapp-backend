@@ -1,7 +1,8 @@
-/* Authentication service handling business logic for user authentication system */
-
-import User from "../models/user.model.js";
-import { hashPassword, comparePassword } from "../utils/hash.utils.js";
+import { redis } from "../config/redis.config.js";
+import { User } from "../models/user.model.js";
+import { ApiError } from "../utils/ApiResponse.util.js";
+import { deleteAvatar, uploadAvatar } from "../utils/cloudinary.util.js";
+import { comparePassword, hashPassword } from "../utils/hash.utils.js";
 import { generateTokenPair, verifyRefreshToken } from "../utils/jwt.utils.js";
 import {
   generateOtp,
@@ -9,395 +10,351 @@ import {
   storeOtp,
   verifyOtp,
 } from "../utils/otp.util.js";
-import { uploadAvatar, deleteAvatar } from "../utils/cloudinary.util.js";
-import redis from "../config/redis.config.js";
-import { ApiError } from "../utils/ApiResponse.util.js";
 
-/* Service layer responsible for authentication-related operations */
-class AuthService {
-  /* Register new user and initiate OTP verification */
-  async register(phone, countryCode, password, displayName, avatarFile) {
-    /* Check if user already exists */
-    const existingUser = await User.findOne({ phone });
-    if (existingUser) {
-      throw new ApiError(409, "Phone number already registered");
-    }
+// ====*** Auth Cookie TTL Constant ***=====
 
-    let avatar = {};
+export const REFRESH_TOKEN_TTL_SECONDS = 7 * 24 * 60 * 60;
 
-    /* Handle optional avatar upload during registration */
-    if (avatarFile) {
-      try {
-        const publicId = `avatar_${phone}_${Date.now()}`;
-        const uploadResult = await uploadAvatar(avatarFile.buffer, publicId);
+// ====*** Register User ***=====
 
-        avatar = {
-          url: uploadResult.secure_url,
-          publicId: uploadResult.public_id,
-        };
-      } catch {
-        throw new ApiError(500, "Failed to upload avatar");
-      }
-    }
+export const register = async (
+  phone,
+  countryCode,
+  password,
+  displayName,
+  avatarFile
+) => {
+  const existingUser = await User.findOne({ phone });
 
-    /* Create new user document */
-    const user = new User({
-      phone,
-      countryCode,
-      password,
-      displayName,
-      avatar,
-    });
-
-    await user.save();
-
-    /* Generate and send OTP for verification */
-    try {
-      const otp = generateOtp();
-      await storeOtp(phone, otp);
-      await sendOtpSms(phone, otp);
-    } catch {
-      /* Rollback user creation if OTP process fails */
-      await User.findByIdAndDelete(user._id);
-      throw new ApiError(500, "Failed to send verification OTP");
-    }
-
-    return {
-      message:
-        "Registration successful. Please verify your phone number with the OTP sent.",
-    };
+  if (existingUser) {
+    throw ApiError.conflict("Phone number is already registered");
   }
 
-  /* Verify OTP and activate user account */
-  async verifyOtp(phone, otp) {
-    const result = await verifyOtp(phone, otp);
+  const user = new User({
+    phone,
+    countryCode,
+    password,
+    displayName,
+  });
 
-    if (!result.success) {
-      throw new ApiError(400, result.message);
-    }
-
-    const user = await User.findOne({ phone });
-    if (!user) {
-      throw new ApiError(404, "User not found");
-    }
-
-    /* Mark user as verified */
-    user.isVerified = true;
-    await user.save();
-
-    /* Generate authentication tokens */
-    const tokens = generateTokenPair(user);
-
-    try {
-      /* Store hashed refresh token for security */
-      user.refreshTokenHash = await hashPassword(tokens.refreshToken);
-      await user.save();
-    } catch {
-      throw new ApiError(500, "Failed to secure session");
-    }
-
-    return {
-      accessToken: tokens.accessToken,
-      refreshToken: tokens.refreshToken,
-      user: user.toJSON(),
-      message: "Phone number verified successfully",
-    };
-  }
-
-  /* Resend OTP for account verification */
-  async resendOtp(phone) {
-    const user = await User.findOne({ phone });
-
-    if (!user) {
-      throw new ApiError(404, "User not found");
-    }
-
-    if (user.isVerified) {
-      throw new ApiError(400, "Account already verified");
-    }
-
-    try {
-      const otp = generateOtp();
-      await storeOtp(phone, otp);
-      await sendOtpSms(phone, otp);
-    } catch {
-      throw new ApiError(500, "Failed to send OTP");
-    }
-
-    return { message: "OTP sent successfully" };
-  }
-
-  /* Authenticate user and generate session tokens */
-  async login(phone, password) {
-    const user = await User.findOne({ phone }).select(
-      "+password +refreshTokenHash +loginAttempts +lockUntil"
+  if (avatarFile) {
+    const uploadResult = await uploadAvatar(
+      avatarFile.buffer,
+      `avatar_${phone.replace(/\W/g, "")}_${Date.now()}`
     );
 
-    if (!user) {
-      throw new ApiError(401, "Invalid credentials");
-    }
-
-    /* Check if account is locked */
-    if (user.isLocked) {
-      throw new ApiError(
-        423,
-        "Account is temporarily locked due to too many failed attempts"
-      );
-    }
-
-    /* Validate password */
-    const isPasswordValid = await comparePassword(password, user.password);
-
-    if (!isPasswordValid) {
-      await user.incLoginAttempts();
-      throw new ApiError(401, "Invalid credentials");
-    }
-
-    /* Ensure account is verified */
-    if (!user.isVerified) {
-      throw new ApiError(403, "Please verify your phone number first");
-    }
-
-    /* Ensure account is active */
-    if (!user.isActive) {
-      throw new ApiError(403, "Account has been deactivated");
-    }
-
-    /* Reset login attempts after successful login */
-    await user.resetLoginAttempts();
-
-    const tokens = generateTokenPair(user);
-
-    try {
-      user.refreshTokenHash = await hashPassword(tokens.refreshToken);
-      user.lastSeen = new Date();
-      await user.save();
-    } catch {
-      throw new ApiError(500, "Failed to create session");
-    }
-
-    return {
-      accessToken: tokens.accessToken,
-      refreshToken: tokens.refreshToken,
-      user: user.toJSON(),
-      message: "Login successful",
+    user.avatar = {
+      url: uploadResult.secure_url,
+      publicId: uploadResult.public_id,
     };
   }
 
-  /* Refresh access token using refresh token */
-  async refreshToken(refreshToken) {
-    try {
-      const isBlacklisted = await redis.get(`blacklist:${refreshToken}`);
-      if (isBlacklisted) {
-        throw new ApiError(401, "Refresh token has been revoked");
-      }
+  await user.save();
 
-      const decoded = verifyRefreshToken(refreshToken);
-
-      const user = await User.findById(decoded.id).select("+refreshTokenHash");
-
-      if (!user || !user.refreshTokenHash) {
-        throw new ApiError(401, "Invalid refresh token");
-      }
-
-      const isValid = await comparePassword(
-        refreshToken,
-        user.refreshTokenHash
-      );
-
-      if (!isValid) {
-        throw new ApiError(401, "Invalid refresh token");
-      }
-
-      const tokens = generateTokenPair(user);
-
-      user.refreshTokenHash = await hashPassword(tokens.refreshToken);
-      await user.save();
-
-      return {
-        accessToken: tokens.accessToken,
-        refreshToken: tokens.refreshToken,
-        message: "Token refreshed successfully",
-      };
-    } catch (error) {
-      if (error instanceof ApiError) throw error;
-      throw new ApiError(401, "Invalid refresh token");
+  try {
+    const otp = generateOtp();
+    await storeOtp(phone, otp);
+    await sendOtpSms(phone, otp);
+  } catch {
+    if (user.avatar?.publicId) {
+      await deleteAvatar(user.avatar.publicId).catch(() => {});
     }
+    await User.findByIdAndDelete(user._id);
+    throw new ApiError(500, "Failed to send verification OTP");
   }
 
-  /* Logout user and invalidate session */
-  async logout(refreshToken) {
-    try {
-      const decoded = verifyRefreshToken(refreshToken);
+  return {
+    message:
+      "Registration successful. Verify your phone number with the OTP sent.",
+  };
+};
 
-      const user = await User.findById(decoded.id).select("+refreshTokenHash");
+// ====*** Verify User OTP ***=====
 
-      if (user && user.refreshTokenHash) {
-        const isValid = await comparePassword(
-          refreshToken,
-          user.refreshTokenHash
-        );
+export const verifyUserOtp = async (phone, otp) => {
+  const otpResult = await verifyOtp(phone, otp);
 
-        if (isValid) {
-          user.refreshTokenHash = undefined;
-          await user.save();
-        }
-      }
-
-      /* Add token to blacklist */
-      await redis.set(
-        `blacklist:${refreshToken}`,
-        "true",
-        "EX",
-        7 * 24 * 60 * 60
-      );
-
-      return { message: "Logged out successfully" };
-    } catch {
-      throw new ApiError(401, "Invalid token");
-    }
+  if (!otpResult.success) {
+    throw ApiError.badRequest(otpResult.message);
   }
 
-  /* Handle forgot password request securely */
-  async forgotPassword(phone) {
-    const user = await User.findOne({ phone });
+  const user = await User.findOne({ phone });
 
-    /* Do not reveal user existence for security reasons */
-    if (!user) {
-      return {
-        message: "If the phone number is registered, an OTP has been sent",
-      };
-    }
-
-    try {
-      const otp = generateOtp();
-      await storeOtp(phone, otp);
-      await sendOtpSms(phone, otp);
-    } catch {
-      throw new ApiError(500, "Failed to send OTP");
-    }
-
-    return {
-      message: "If the phone number is registered, an OTP has been sent",
-    };
+  if (!user) {
+    throw ApiError.notFound("User not found");
   }
 
-  /* Reset user password after OTP verification */
-  async resetPassword(phone, otp, newPassword) {
-    const result = await verifyOtp(phone, otp);
+  user.isVerified = true;
 
-    if (!result.success) {
-      throw new ApiError(400, result.message);
-    }
+  const tokens = generateTokenPair(user);
+  user.refreshTokenHash = await hashPassword(tokens.refreshToken);
+  await user.save();
 
-    const user = await User.findOne({ phone });
-    if (!user) {
-      throw new ApiError(404, "User not found");
-    }
+  return {
+    message: "Phone number verified successfully",
+    accessToken: tokens.accessToken,
+    refreshToken: tokens.refreshToken,
+    user: user.toJSON(),
+  };
+};
 
-    user.password = newPassword;
-    user.passwordChangedAt = new Date();
+// ====*** Resend OTP ***=====
+
+export const resendOtp = async (phone) => {
+  const user = await User.findOne({ phone });
+
+  if (!user) {
+    throw ApiError.notFound("User not found");
+  }
+
+  if (user.isVerified) {
+    throw ApiError.badRequest("Account is already verified");
+  }
+
+  const otp = generateOtp();
+  await storeOtp(phone, otp);
+  await sendOtpSms(phone, otp);
+
+  return {
+    message: "OTP sent successfully",
+  };
+};
+
+// ====*** Login User ***=====
+
+export const login = async (phone, password) => {
+  const user = await User.findOne({ phone }).select(
+    "+password +refreshTokenHash +loginAttempts +lockUntil"
+  );
+
+  if (!user) {
+    throw ApiError.unauthorized("Invalid credentials");
+  }
+
+  if (user.isLocked) {
+    throw ApiError.locked(
+      "Account is temporarily locked because of too many failed login attempts"
+    );
+  }
+
+  if (!user.isActive) {
+    throw ApiError.forbidden("Account has been deactivated");
+  }
+
+  if (!user.isVerified) {
+    throw ApiError.forbidden("Phone number verification is required");
+  }
+
+  const isValidPassword = await comparePassword(password, user.password);
+
+  if (!isValidPassword) {
+    await user.incLoginAttempts();
+    throw ApiError.unauthorized("Invalid credentials");
+  }
+
+  await user.resetLoginAttempts();
+
+  const tokens = generateTokenPair(user);
+  user.refreshTokenHash = await hashPassword(tokens.refreshToken);
+  user.lastSeen = new Date();
+  await user.save();
+
+  return {
+    message: "Login successful",
+    accessToken: tokens.accessToken,
+    refreshToken: tokens.refreshToken,
+    user: user.toJSON(),
+  };
+};
+
+// ====*** Refresh Session ***=====
+
+export const refreshToken = async (refreshTokenValue) => {
+  const isBlacklisted = await redis.get(`blacklist:${refreshTokenValue}`);
+
+  if (isBlacklisted) {
+    throw ApiError.unauthorized("Refresh token has been revoked");
+  }
+
+  let decoded;
+
+  try {
+    decoded = verifyRefreshToken(refreshTokenValue);
+  } catch {
+    throw ApiError.unauthorized("Invalid refresh token");
+  }
+
+  const user = await User.findById(decoded.id).select("+refreshTokenHash");
+
+  if (!user?.refreshTokenHash) {
+    throw ApiError.unauthorized("Invalid refresh token");
+  }
+
+  const matches = await comparePassword(
+    refreshTokenValue,
+    user.refreshTokenHash
+  );
+
+  if (!matches) {
+    throw ApiError.unauthorized("Invalid refresh token");
+  }
+
+  const nextTokens = generateTokenPair(user);
+  user.refreshTokenHash = await hashPassword(nextTokens.refreshToken);
+  await user.save();
+
+  return {
+    message: "Token refreshed successfully",
+    accessToken: nextTokens.accessToken,
+    refreshToken: nextTokens.refreshToken,
+  };
+};
+
+// ====*** Logout User ***=====
+
+export const logout = async (refreshTokenValue) => {
+  let decoded;
+
+  try {
+    decoded = verifyRefreshToken(refreshTokenValue);
+  } catch {
+    throw ApiError.unauthorized("Invalid refresh token");
+  }
+
+  const user = await User.findById(decoded.id).select("+refreshTokenHash");
+
+  if (user) {
+    user.refreshTokenHash = null;
     await user.save();
-
-    return { message: "Password reset successfully" };
   }
 
-  /* Retrieve user profile */
-  async getProfile(userId) {
-    const user = await User.findById(userId);
+  await redis.set(
+    `blacklist:${refreshTokenValue}`,
+    "1",
+    "EX",
+    REFRESH_TOKEN_TTL_SECONDS
+  );
 
-    if (!user) {
-      throw new ApiError(404, "User not found");
-    }
+  return {
+    message: "Logged out successfully",
+  };
+};
 
-    return { user: user.toJSON() };
-  }
+// ====*** Forgot Password ***=====
 
-  /* Update user profile details and avatar */
-  async updateProfile(userId, updates, avatarFile) {
-    const user = await User.findById(userId);
+export const forgotPassword = async (phone) => {
+  const user = await User.findOne({ phone });
 
-    if (!user) {
-      throw new ApiError(404, "User not found");
-    }
-
-    /* Update display name */
-    if (updates.displayName) {
-      user.displayName = updates.displayName;
-    }
-
-    /* Update avatar if provided */
-    if (avatarFile) {
-      try {
-        if (user.avatar.publicId) {
-          await deleteAvatar(user.avatar.publicId);
-        }
-
-        const publicId = `avatar_${user.phone}_${Date.now()}`;
-        const uploadResult = await uploadAvatar(avatarFile.buffer, publicId);
-
-        user.avatar = {
-          url: uploadResult.secure_url,
-          publicId: uploadResult.public_id,
-        };
-      } catch {
-        throw new ApiError(500, "Failed to update avatar");
-      }
-    }
-
-    await user.save();
-
+  if (!user) {
     return {
-      user: user.toJSON(),
-      message: "Profile updated successfully",
+      message: "If the phone number exists, an OTP has been sent",
     };
   }
 
-  /* Update only user avatar */
-  async updateAvatar(userId, avatarFile) {
-    const user = await User.findById(userId);
+  const otp = generateOtp();
+  await storeOtp(phone, otp);
+  await sendOtpSms(phone, otp);
 
-    if (!user) {
-      throw new ApiError(404, "User not found");
+  return {
+    message: "If the phone number exists, an OTP has been sent",
+  };
+};
+
+// ====*** Reset Password ***=====
+
+export const resetPassword = async (phone, otp, newPassword) => {
+  const otpResult = await verifyOtp(phone, otp);
+
+  if (!otpResult.success) {
+    throw ApiError.badRequest(otpResult.message);
+  }
+
+  const user = await User.findOne({ phone });
+
+  if (!user) {
+    throw ApiError.notFound("User not found");
+  }
+
+  user.password = newPassword;
+  user.refreshTokenHash = null;
+  await user.save();
+
+  return {
+    message: "Password reset successfully",
+  };
+};
+
+// ====*** Get Profile ***=====
+
+export const getProfile = async (userId) => {
+  const user = await User.findById(userId);
+
+  if (!user) {
+    throw ApiError.notFound("User not found");
+  }
+
+  return {
+    user: user.toJSON(),
+  };
+};
+
+// ====*** Update Profile ***=====
+
+export const updateProfile = async (userId, updates, avatarFile) => {
+  const user = await User.findById(userId);
+
+  if (!user) {
+    throw ApiError.notFound("User not found");
+  }
+
+  if (updates.displayName) {
+    user.displayName = updates.displayName;
+  }
+
+  if (avatarFile) {
+    if (user.avatar?.publicId) {
+      await deleteAvatar(user.avatar.publicId).catch(() => {});
     }
 
-    try {
-      if (user.avatar.publicId) {
-        await deleteAvatar(user.avatar.publicId);
-      }
+    const uploadResult = await uploadAvatar(
+      avatarFile.buffer,
+      `avatar_${user.phone.replace(/\W/g, "")}_${Date.now()}`
+    );
 
-      const publicId = `avatar_${user.phone}_${Date.now()}`;
-      const uploadResult = await uploadAvatar(avatarFile.buffer, publicId);
-
-      user.avatar = {
-        url: uploadResult.secure_url,
-        publicId: uploadResult.public_id,
-      };
-
-      await user.save();
-    } catch {
-      throw new ApiError(500, "Failed to update avatar");
-    }
-
-    return {
-      user: user.toJSON(),
-      message: "Avatar updated successfully",
+    user.avatar = {
+      url: uploadResult.secure_url,
+      publicId: uploadResult.public_id,
     };
   }
 
-  /* Deactivate user account */
-  async deactivateAccount(userId) {
-    const user = await User.findById(userId);
+  await user.save();
 
-    if (!user) {
-      throw new ApiError(404, "User not found");
-    }
+  return {
+    message: "Profile updated successfully",
+    user: user.toJSON(),
+  };
+};
 
-    user.isActive = false;
-    await user.save();
+// ====*** Update Avatar ***=====
 
-    return { message: "Account deactivated successfully" };
+export const updateAvatar = async (userId, avatarFile) =>
+  updateProfile(userId, {}, avatarFile);
+
+// ====*** Deactivate Account ***=====
+
+export const deactivateAccount = async (userId) => {
+  const user = await User.findById(userId);
+
+  if (!user) {
+    throw ApiError.notFound("User not found");
   }
-}
 
-export default new AuthService();
+  user.isActive = false;
+  user.isOnline = false;
+  user.refreshTokenHash = null;
+  await user.save();
+
+  return {
+    message: "Account deactivated successfully",
+  };
+};

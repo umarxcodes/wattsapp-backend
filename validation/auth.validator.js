@@ -1,137 +1,102 @@
-/* Zod validation schemas for authentication endpoints with input sanitization */
-
 import { z } from "zod";
 
-/* Common validation patterns */
-const phoneRegex = /^\+\d{10,15}$/;
+// ====*** Shared Auth Validation Schemas ***=====
 
-const passwordRegex =
-  /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]/;
-
-/* Phone number validation schema */
 const phoneSchema = z
   .string({ required_error: "Phone number is required" })
-  .regex(phoneRegex, "Invalid phone number format (e.g., +1234567890)")
-  .transform((val) => val.toLowerCase().trim());
+  .trim()
+  .regex(/^\+\d{10,15}$/, "Phone number must be in E.164 format");
 
-/* Strong password validation schema */
 const passwordSchema = z
   .string({ required_error: "Password is required" })
   .min(8, "Password must be at least 8 characters")
-  .regex(
-    passwordRegex,
-    "Password must contain uppercase, lowercase, number, and special character"
-  );
+  .max(128, "Password cannot exceed 128 characters");
 
-/* Display name validation schema */
 const displayNameSchema = z
   .string({ required_error: "Display name is required" })
+  .trim()
   .min(2, "Display name must be at least 2 characters")
-  .max(50, "Display name cannot exceed 50 characters")
-  .trim();
+  .max(50, "Display name cannot exceed 50 characters");
 
-/* OTP validation schema */
 const otpSchema = z
   .string({ required_error: "OTP is required" })
-  .length(6, "OTP must be exactly 6 digits")
-  .regex(/^\d{6}$/, "OTP must contain only digits");
+  .regex(/^\d{6}$/, "OTP must be a 6 digit code");
 
-/* Avatar file validation schema */
 const avatarFileSchema = z.object({
-  buffer: z.instanceof(Buffer, "Invalid file buffer"),
-  mimetype: z
-    .string()
-    .refine(
-      (val) => ["image/jpeg", "image/png", "image/webp"].includes(val),
-      "Only JPEG, PNG, and WebP images are allowed"
-    ),
-  size: z.number().max(5 * 1024 * 1024, "File size must not exceed 5MB"),
+  buffer: z.instanceof(Buffer),
+  mimetype: z.enum(["image/jpeg", "image/png", "image/webp"]),
+  size: z.number().max(5 * 1024 * 1024, "Avatar size must not exceed 5MB"),
 });
 
-/* Register endpoint validation */
-export const registerSchema = z.object({
+// ====*** Register Validation ***=====
+
+export const registerSchema = {
   body: z.object({
     phone: phoneSchema,
-    countryCode: z
-      .string({ required_error: "Country code is required" })
-      .min(2)
-      .max(3)
-      .toUpperCase()
-      .trim(),
+    countryCode: z.string().trim().min(2).max(5).toUpperCase(),
     password: passwordSchema,
     displayName: displayNameSchema,
   }),
   file: avatarFileSchema.optional(),
-});
+};
 
-/* OTP verification validation */
-export const verifyOtpSchema = z.object({
+// ====*** OTP Validation ***=====
+
+export const verifyOtpSchema = {
   body: z.object({
     phone: phoneSchema,
     otp: otpSchema,
   }),
-});
+};
 
-/* Resend OTP validation */
-export const resendOtpSchema = z.object({
+export const resendOtpSchema = {
   body: z.object({
     phone: phoneSchema,
   }),
-});
+};
 
-/* Login validation */
-export const loginSchema = z.object({
+// ====*** Session Validation ***=====
+
+export const loginSchema = {
   body: z.object({
     phone: phoneSchema,
-    password: z
-      .string({ required_error: "Password is required" })
-      .min(1, "Password is required"),
+    password: z.string().min(1, "Password is required"),
   }),
-});
+};
 
-/* Refresh token validation */
-export const refreshTokenSchema = z.object({
+export const refreshTokenSchema = {
   cookies: z.object({
-    refreshToken: z.string({
-      required_error: "Refresh token is required",
-    }),
+    refreshToken: z.string().min(1, "Refresh token is required"),
   }),
-});
+};
 
-/* Logout validation */
-export const logoutSchema = z.object({
-  cookies: z.object({
-    refreshToken: z.string({
-      required_error: "Refresh token is required",
-    }),
-  }),
-});
+export const logoutSchema = refreshTokenSchema;
 
-/* Forgot password validation */
-export const forgotPasswordSchema = z.object({
+// ====*** Password Recovery Validation ***=====
+
+export const forgotPasswordSchema = {
   body: z.object({
     phone: phoneSchema,
   }),
-});
+};
 
-/* Reset password validation */
-export const resetPasswordSchema = z.object({
+export const resetPasswordSchema = {
   body: z.object({
     phone: phoneSchema,
     otp: otpSchema,
     newPassword: passwordSchema,
   }),
-});
+};
 
-/* Avatar update validation */
-export const updateAvatarSchema = z.object({
-  file: avatarFileSchema,
-});
+// ====*** Profile Validation ***=====
 
-/* Profile update validation */
-export const updateProfileSchema = z.object({
+export const updateProfileSchema = {
   body: z.object({
     displayName: displayNameSchema.optional(),
   }),
   file: avatarFileSchema.optional(),
-});
+};
+
+export const updateAvatarSchema = {
+  file: avatarFileSchema,
+};

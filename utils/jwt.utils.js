@@ -1,71 +1,78 @@
-/* JWT token utilities for authentication and session management */
-
 import jwt from "jsonwebtoken";
-import env from "../config/env.config.js";
+import { env } from "../config/env.config.js";
 
-/* Generate short-lived access token for API authentication */
-export const generateAccessToken = (payload) => {
-  try {
-    return jwt.sign(payload, env.ACCESS_TOKEN_SECRET, {
-      expiresIn: "15m",
-    });
-  } catch (error) {
-    throw new Error("Failed to generate access token", { cause: error });
-  }
-};
+// ====*** Access Token Helpers ***=====
 
-/* Generate long-lived refresh token for session renewal */
-export const generateRefreshToken = (payload) => {
-  try {
-    return jwt.sign(payload, env.REFRESH_TOKEN_SECRET, {
-      expiresIn: "7d",
-    });
-  } catch (error) {
-    throw new Error("Failed to generate refresh token", { cause: error });
-  }
-};
+/**
+ * Generate a signed access token.
+ * @param {object} payload
+ * @returns {string}
+ */
+export const generateAccessToken = (payload) =>
+  jwt.sign(payload, env.ACCESS_TOKEN_SECRET, {
+    expiresIn: env.ACCESS_TOKEN_EXPIRES_IN,
+  });
 
-/* Verify and decode access token */
-export const verifyAccessToken = (token) => {
-  try {
-    return jwt.verify(token, env.ACCESS_TOKEN_SECRET);
-  } catch (error) {
-    throw new Error("Invalid or expired access token", {
-      cause: error,
-    });
-  }
-};
+/**
+ * Verify an access token.
+ * @param {string} token
+ * @returns {object}
+ */
+export const verifyAccessToken = (token) =>
+  jwt.verify(token, env.ACCESS_TOKEN_SECRET);
 
-/* Verify and decode refresh token */
-export const verifyRefreshToken = (token) => {
-  try {
-    return jwt.verify(token, env.REFRESH_TOKEN_SECRET);
-  } catch (error) {
-    throw new Error("Invalid or expired refresh token", {
-      cause: error,
-    });
-  }
-};
+// ====*** Refresh Token Helpers ***=====
 
-/* Decode token without verifying signature (unsafe, use carefully) */
-export const decodeToken = (token) => {
-  try {
-    return jwt.decode(token);
-  } catch (error) {
-    throw new Error("Failed to decode token", { cause: error });
-  }
-};
+/**
+ * Generate a signed refresh token.
+ * @param {object} payload
+ * @returns {string}
+ */
+export const generateRefreshToken = (payload) =>
+  jwt.sign(payload, env.REFRESH_TOKEN_SECRET, {
+    expiresIn: env.REFRESH_TOKEN_EXPIRES_IN,
+  });
 
-/* Generate access + refresh token pair for authenticated user */
+/**
+ * Verify a refresh token.
+ * @param {string} token
+ * @returns {object}
+ */
+export const verifyRefreshToken = (token) =>
+  jwt.verify(token, env.REFRESH_TOKEN_SECRET);
+
+// ====*** Token Pair Helpers ***=====
+
+/**
+ * Build the JWT payload for a user.
+ * @param {object} user
+ * @returns {object}
+ */
+export const buildAuthPayload = (user) => ({
+  id: user._id.toString(),
+  phone: user.phone,
+  displayName: user.displayName,
+});
+
+/**
+ * Generate access and refresh tokens for a user.
+ * @param {object} user
+ * @returns {{accessToken: string, refreshToken: string}}
+ */
 export const generateTokenPair = (user) => {
-  const payload = {
-    id: user._id.toString(),
-    phone: user.phone,
-    displayName: user.displayName,
-  };
+  const payload = buildAuthPayload(user);
 
   return {
     accessToken: generateAccessToken(payload),
     refreshToken: generateRefreshToken(payload),
   };
 };
+
+// ====*** Token Alias Export ***=====
+
+/**
+ * Verify a bearer token for shared HTTP and socket auth.
+ * @param {string} token
+ * @returns {object}
+ */
+export const verifyToken = verifyAccessToken;

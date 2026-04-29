@@ -1,98 +1,123 @@
-/* Cloudinary integration for secure avatar upload, deletion, and optimization */
-
 import { v2 as cloudinary } from "cloudinary";
 import { Readable } from "stream";
-import env from "../config/env.config.js";
+import { env } from "../config/env.config.js";
 
-/* Configure Cloudinary with environment credentials */
+// ====*** Cloudinary Configuration ***=====
+
 cloudinary.config({
-  cloud_name: env.CLOUDINARY_CLOUD_NAME,
-  api_key: env.CLOUDINARY_API_KEY,
-  api_secret: env.CLOUDINARY_API_SECRET,
+  cloud_name: env.CLOUDINARY_CLOUD_NAME || undefined,
+  api_key: env.CLOUDINARY_API_KEY || undefined,
+  api_secret: env.CLOUDINARY_API_SECRET || undefined,
 });
 
-/* Upload avatar image with optimization and transformation */
-export const uploadAvatar = (buffer, publicId) => {
-  /* Validate image buffer */
-  if (!buffer || !Buffer.isBuffer(buffer)) {
-    throw new Error("Valid image buffer is required");
-  }
+// ====*** Cloudinary Guard ***=====
 
-  /* Validate public ID */
-  if (!publicId || typeof publicId !== "string") {
-    throw new Error("Valid public ID is required");
+const assertCloudinaryConfigured = () => {
+  if (
+    !env.CLOUDINARY_CLOUD_NAME ||
+    !env.CLOUDINARY_API_KEY ||
+    !env.CLOUDINARY_API_SECRET
+  ) {
+    throw new Error("Cloudinary is not configured");
+  }
+};
+
+// ====*** Upload Buffer ***=====
+
+/**
+ * Upload a buffer to Cloudinary.
+ * @param {Buffer} buffer
+ * @param {object} options
+ * @returns {Promise<object>}
+ */
+export const uploadBufferToCloudinary = (buffer, options = {}) => {
+  assertCloudinaryConfigured();
+
+  if (!Buffer.isBuffer(buffer)) {
+    throw new Error("A valid file buffer is required");
   }
 
   return new Promise((resolve, reject) => {
-    /* Create Cloudinary upload stream */
     const stream = cloudinary.uploader.upload_stream(
       {
-        /* Set public identifier for image */
-        public_id: publicId,
-
-        /* Store avatars in dedicated folder */
-        folder: "avatars",
-
-        /* Image optimization and face-focused cropping */
-        transformation: [
-          { width: 200, height: 200, crop: "fill", gravity: "face" },
-          { quality: "auto", fetch_format: "auto" },
-        ],
-
-        /* Restrict allowed image formats */
-        allowed_formats: ["jpg", "png", "jpeg", "webp"],
-
-        /* Limit file size for security */
-        max_bytes: 5 * 1024 * 1024,
+        resource_type: "auto",
+        ...options,
       },
       (error, result) => {
         if (error) {
-          console.error("Cloudinary upload error:", error.message);
-          return reject(new Error("Failed to upload avatar"));
+          reject(error);
+          return;
         }
 
-        console.log(`Avatar uploaded successfully: ${result.secure_url}`);
         resolve(result);
       }
     );
 
-    /* Convert buffer into stream for upload */
     Readable.from(buffer).pipe(stream);
   });
 };
 
-/* Delete avatar from Cloudinary storage */
-export const deleteAvatar = (publicId) => {
-  /* Validate public ID */
-  if (!publicId || typeof publicId !== "string") {
-    throw new Error("Valid public ID is required");
+// ====*** Upload Avatar ***=====
+
+/**
+ * Upload an avatar image to Cloudinary.
+ * @param {Buffer} buffer
+ * @param {string} publicId
+ * @returns {Promise<object>}
+ */
+export const uploadAvatar = (buffer, publicId) =>
+  uploadBufferToCloudinary(buffer, {
+    folder: "wattsapp/avatars",
+    public_id: publicId,
+    transformation: [
+      {
+        width: 300,
+        height: 300,
+        crop: "fill",
+        gravity: "face",
+      },
+      {
+        quality: "auto",
+        fetch_format: "auto",
+      },
+    ],
+  });
+
+// ====*** Upload Message Media ***=====
+
+/**
+ * Upload message media to Cloudinary.
+ * @param {Buffer} buffer
+ * @param {object} options
+ * @returns {Promise<object>}
+ */
+export const uploadMessageMedia = (buffer, options = {}) =>
+  uploadBufferToCloudinary(buffer, {
+    folder: "wattsapp/messages",
+    ...options,
+  });
+
+// ====*** Delete Asset ***=====
+
+/**
+ * Delete a Cloudinary asset.
+ * @param {string} publicId
+ * @returns {Promise<object>}
+ */
+export const deleteCloudinaryAsset = async (publicId) => {
+  if (!publicId) {
+    return { result: "not-found" };
   }
 
-  return cloudinary.uploader
-    .destroy(publicId)
-    .then((result) => {
-      console.log(`Avatar deleted: ${publicId}`);
-      return result;
-    })
-    .catch((error) => {
-      console.error("Cloudinary delete error:", error.message);
-      throw new Error("Failed to delete avatar");
-    });
+  assertCloudinaryConfigured();
+  return cloudinary.uploader.destroy(publicId, { resource_type: "image" });
 };
 
-/* Generate optimized Cloudinary avatar URL */
-export const getAvatarUrl = (publicId, options = {}) => {
-  if (!publicId) return null;
+// ====*** Delete Avatar ***=====
 
-  /* Default transformation settings for avatars */
-  const defaultOptions = {
-    width: 200,
-    height: 200,
-    crop: "fill",
-    quality: "auto",
-    fetch_format: "auto",
-    ...options,
-  };
-
-  return cloudinary.url(publicId, defaultOptions);
-};
+/**
+ * Delete an avatar asset.
+ * @param {string} publicId
+ * @returns {Promise<object>}
+ */
+export const deleteAvatar = (publicId) => deleteCloudinaryAsset(publicId);

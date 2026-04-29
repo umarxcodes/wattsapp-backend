@@ -1,151 +1,125 @@
-/* OTP generation, storage, verification, and SMS delivery service */
-
-import crypto from "crypto";
 import bcrypt from "bcrypt";
+import crypto from "crypto";
 import twilio from "twilio";
-import env from "../config/env.config.js";
-import redis from "../config/redis.config.js";
+import { redis } from "../config/redis.config.js";
+import { env } from "../config/env.config.js";
 
-/* Twilio client initialization for SMS delivery */
-const twilioClient = twilio(env.TWILIO_ACCOUNT_SID, env.TWILIO_AUTH_TOKEN);
+// ====*** OTP Constants ***=====
 
-/* OTP configuration constants */
-const OTP_TTL = 300; // 5 minutes expiration
+const OTP_TTL_SECONDS = 300;
 const OTP_MAX_ATTEMPTS = 5;
 
-/* Generate secure 6-digit OTP */
-export const generateOtp = () => {
-  return crypto.randomInt(100000, 999999).toString();
-};
+// ====*** Twilio Client ***=====
 
-/* Send OTP via SMS using Twilio service */
+const twilioClient =
+  env.TWILIO_ACCOUNT_SID && env.TWILIO_AUTH_TOKEN
+    ? twilio(env.TWILIO_ACCOUNT_SID, env.TWILIO_AUTH_TOKEN)
+    : null;
+
+// ====*** OTP Key Helpers ***=====
+
+const getOtpKey = (phone) => `otp:${phone}`;
+const getOtpAttemptsKey = (phone) => `otp_attempts:${phone}`;
+
+// ====*** Generate OTP ***=====
+
+/**
+ * Generate a 6 digit OTP.
+ * @returns {string}
+ */
+export const generateOtp = () => crypto.randomInt(100000, 1000000).toString();
+
+// ====*** Send OTP SMS ***=====
+
+/**
+ * Send an OTP via Twilio or log it in development.
+ * @param {string} phone
+ * @param {string} otp
+ * @returns {Promise<void>}
+ */
 export const sendOtpSms = async (phone, otp) => {
-  /* Validate phone input */
-  if (!phone || typeof phone !== "string") {
-    throw new Error("Valid phone number is required");
+  if (env.NODE_ENV !== "production") {
+    console.log(`OTP for ${phone}: ${otp}`);
+    return;
   }
 
-  /* Validate OTP format */
-  if (!otp || typeof otp !== "string" || otp.length !== 6) {
-    throw new Error("Valid 6-digit OTP is required");
+  if (!twilioClient || !env.TWILIO_PHONE_NUMBER) {
+    throw new Error("Twilio is not configured");
   }
 
-  try {
-    /* Development mode: log OTP instead of sending SMS */
-    if (env.NODE_ENV === "development") {
-      console.log(`OTP (DEV) for ${phone}: ${otp}`);
-      return;
-    }
-
-    /* Send SMS via Twilio */
-    await twilioClient.messages.create({
-      body: `Your verification code is: ${otp}. Valid for 5 minutes.`,
-      from: env.TWILIO_PHONE_NUMBER,
-      to: phone,
-    });
-
-    console.log(`OTP sent successfully to ${phone}`);
-  } catch (error) {
-    console.error("Failed to send OTP SMS:", error.message);
-    throw new Error("Failed to send OTP via SMS", { cause: error });
-  }
+  await twilioClient.messages.create({
+    body: `Your WattsApp verification code is ${otp}. It expires in 5 minutes.`,
+    from: env.TWILIO_PHONE_NUMBER,
+    to: phone,
+  });
 };
 
-/* Store hashed OTP in Redis with expiration and attempt tracking */
+// ====*** Store OTP ***=====
+
+/**
+ * Store a hashed OTP and reset attempts.
+ * @param {string} phone
+ * @param {string} otp
+ * @returns {Promise<void>}
+ */
 export const storeOtp = async (phone, otp) => {
-  if (!phone || !otp) {
-    throw new Error("Phone and OTP are required");
-  }
+  const otpHash = await bcrypt.hash(otp, 10);
 
-  const otpKey = `otp:${phone}`;
-  const attemptsKey = `otp_attempts:${phone}`;
-
-  try {
-    /* Hash OTP before storing for security */
-    const hashedOtp = await bcrypt.hash(otp, 10);
-
-    /* Store OTP and attempt counter in Redis with TTL */
-    await redis
-      .multi()
-      .set(otpKey, hashedOtp, "EX", OTP_TTL)
-      .set(attemptsKey, 0, "EX", OTP_TTL)
-      .exec();
-
-    console.log(`OTP stored successfully for ${phone}`);
-  } catch (error) {
-    console.error("Failed to store OTP:", error.message);
-    throw new Error("Failed to store OTP", { cause: error });
-  }
+  await redis
+    .multi()
+    .set(getOtpKey(phone), otpHash, "EX", OTP_TTL_SECONDS)
+    .set(getOtpAttemptsKey(phone), "0", "EX", OTP_TTL_SECONDS)
+    .exec();
 };
 
-/* Verify OTP with attempt limiting and security checks */
+// ====*** Verify OTP ***=====
+
+/**
+ * Verify an OTP for a phone number.
+ * @param {string} phone
+ * @param {string} otp
+ * @returns {Promise<{success: boolean, message: string}>}
+ */
 export const verifyOtp = async (phone, otp) => {
-  if (!phone || !otp) {
+  const [storedOtpHash, attemptsValue] = await Promise.all([
+    redis.get(getOtpKey(phone)),
+    redis.get(getOtpAttemptsKey(phone)),
+  ]);
+
+  if (!storedOtpHash) {
     return {
       success: false,
-      message: "Phone and OTP are required",
+      message: "OTP expired or not found",
     };
   }
 
-  const otpKey = `otp:${phone}`;
-  const attemptsKey = `otp_attempts:${phone}`;
+  const attempts = Number(attemptsValue || 0);
 
-  try {
-    /* Retrieve stored OTP and attempt count */
-    const [storedOtp, attempts] = await Promise.all([
-      redis.get(otpKey),
-      redis.get(attemptsKey),
-    ]);
-
-    /* Check if OTP exists or expired */
-    if (!storedOtp) {
-      return {
-        success: false,
-        message: "OTP expired or not found",
-      };
-    }
-
-    const attemptCount = Number(attempts) || 0;
-
-    /* Block verification after maximum attempts */
-    if (attemptCount >= OTP_MAX_ATTEMPTS) {
-      await redis.del(otpKey);
-      await redis.del(attemptsKey);
-
-      return {
-        success: false,
-        message: "Too many attempts. OTP blocked.",
-      };
-    }
-
-    /* Validate OTP */
-    const isValid = await bcrypt.compare(otp, storedOtp);
-
-    if (!isValid) {
-      await redis.incr(attemptsKey);
-
-      const remainingAttempts = OTP_MAX_ATTEMPTS - (attemptCount + 1);
-
-      return {
-        success: false,
-        message: `Invalid OTP. ${remainingAttempts} attempts remaining.`,
-      };
-    }
-
-    /* Successful verification → cleanup Redis keys */
-    await redis.del(otpKey);
-    await redis.del(attemptsKey);
-
-    return {
-      success: true,
-      message: "OTP verified successfully",
-    };
-  } catch (error) {
-    console.error("OTP verification error:", error.message);
+  if (attempts >= OTP_MAX_ATTEMPTS) {
+    await redis.del(getOtpKey(phone), getOtpAttemptsKey(phone));
 
     return {
       success: false,
-      message: "Verification failed",
+      message: "Too many OTP attempts. Request a new code.",
     };
   }
+
+  const isValid = await bcrypt.compare(otp, storedOtpHash);
+
+  if (!isValid) {
+    const nextAttempts = await redis.incr(getOtpAttemptsKey(phone));
+    await redis.expire(getOtpAttemptsKey(phone), OTP_TTL_SECONDS);
+
+    return {
+      success: false,
+      message: `Invalid OTP. ${Math.max(OTP_MAX_ATTEMPTS - nextAttempts, 0)} attempts remaining.`,
+    };
+  }
+
+  await redis.del(getOtpKey(phone), getOtpAttemptsKey(phone));
+
+  return {
+    success: true,
+    message: "OTP verified successfully",
+  };
 };
