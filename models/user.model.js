@@ -95,7 +95,6 @@ const userSchema = new mongoose.Schema(
 
 // ====*** User Indexes ***=====
 
-userSchema.index({ phone: 1 });
 userSchema.index({ displayName: "text" });
 userSchema.index({ isOnline: 1, lastSeen: -1 });
 

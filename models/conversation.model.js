@@ -15,7 +15,6 @@ const conversationSettingsSchema = new mongoose.Schema(
 );
 
 // ====*** Conversation Schema ***=====
-
 const conversationSchema = new mongoose.Schema(
   {
     conversationType: {
