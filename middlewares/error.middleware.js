@@ -32,6 +32,15 @@ export const errorHandler = (error, req, res, next) => {
     normalizedError = ApiError.conflict(
       `${duplicateField || "Resource"} already exists`
     );
+  } else if (error?.name === "TokenExpiredError") {
+    normalizedError = ApiError.unauthorized("Access token has expired");
+  } else if (
+    error?.name === "JsonWebTokenError" ||
+    error?.name === "NotBeforeError"
+  ) {
+    normalizedError = ApiError.unauthorized("Invalid access token");
+  } else if (error?.message === "CORS origin is not allowed") {
+    normalizedError = ApiError.forbidden("CORS origin is not allowed");
   } else if (!(error instanceof ApiError)) {
     normalizedError = new ApiError(500, "Internal server error");
   }
@@ -42,6 +51,8 @@ export const errorHandler = (error, req, res, next) => {
       path: req.originalUrl,
       statusCode: normalizedError.statusCode,
       message: normalizedError.message,
+      originalError: error?.message,
+      stack: env.NODE_ENV === "development" ? error?.stack : undefined,
     });
   }
 
@@ -52,7 +63,7 @@ export const errorHandler = (error, req, res, next) => {
   );
 
   if (env.NODE_ENV === "development") {
-    response.stack = normalizedError.stack;
+    response.stack = error?.stack || normalizedError.stack;
   }
 
   res.status(normalizedError.statusCode).json(response);
