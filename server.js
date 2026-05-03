@@ -1,5 +1,5 @@
 import { createServer } from "node:http";
-import { app } from "./app.js";
+import app from "./app.js";
 import { connectDB, disconnectDB } from "./config/db.config.js";
 import { env } from "./config/env.config.js";
 import { connectRedis, disconnectRedis } from "./config/redis.config.js";
