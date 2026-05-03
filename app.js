@@ -12,7 +12,8 @@ import { messageRouter } from "./routes/message.routes.js";
 
 // ====*** Express Application Setup ***=====
 
-export const app = express();
+const app = express(); // ✅ NOT exported here
+
 const allowedOrigins = [env.CLIENT_URL, env.SOCKET_CORS_ORIGIN];
 
 app.set("trust proxy", 1);
@@ -38,11 +39,9 @@ app.use(
   cors({
     origin: (origin, callback) => {
       if (!origin || allowedOrigins.includes(origin)) {
-        callback(null, true);
-        return;
+        return callback(null, true);
       }
-
-      callback(new Error("CORS origin is not allowed"));
+      return callback(new Error("CORS origin is not allowed"));
     },
     credentials: true,
     methods: ["GET", "POST", "PATCH", "DELETE"],
@@ -55,8 +54,6 @@ app.use(
 app.use(express.json({ limit: "100kb" }));
 app.use(express.urlencoded({ extended: true, limit: "100kb" }));
 app.use(cookieParser());
-
-// mongoSanitize REMOVED because it crashes in Express 5
 
 // ====*** API Rate Limiting ***=====
 
@@ -93,3 +90,6 @@ app.use((req, res) => {
 // ====*** Global Error Handler ***=====
 
 app.use(errorHandler);
+
+// ✅ CRITICAL FIX FOR VERCEL
+export default app;
