@@ -1,7 +1,6 @@
 import cookieParser from "cookie-parser";
 import cors from "cors";
 import express from "express";
-import mongoSanitize from "express-mongo-sanitize";
 import helmet from "helmet";
 import { env } from "./config/env.config.js";
 import { errorHandler } from "./middlewares/error.middleware.js";
@@ -56,7 +55,8 @@ app.use(
 app.use(express.json({ limit: "100kb" }));
 app.use(express.urlencoded({ extended: true, limit: "100kb" }));
 app.use(cookieParser());
-app.use(mongoSanitize());
+
+// mongoSanitize REMOVED because it crashes in Express 5
 
 // ====*** API Rate Limiting ***=====
 
