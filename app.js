@@ -64,7 +64,7 @@ app.use("/api", generalLimiter);
 
 // ====*** Health Route ***=====
 
-app.get("/health", (req, res) => {
+app.get("/", (req, res) => {
   res.status(200).json({
     success: true,
     status: "ok",
