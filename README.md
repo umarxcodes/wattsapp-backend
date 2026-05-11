@@ -229,8 +229,8 @@ wattsapp-backend/
 | `POST` | `/verify-otp` | Public | Verify phone with OTP code |
 | `POST` | `/resend-otp` | Public | Resend OTP (rate limited) |
 | `POST` | `/login` | Public | Login with phone/password |
-| `POST` | `/refresh-token` | Public | Rotate access token |
-| `POST` | `/logout` | Public | Invalidate refresh token |
+| `POST` | `/refresh-token` | Cookie | Rotate access token using the `refreshToken` cookie |
+| `POST` | `/logout` | Cookie + Bearer | Invalidate refresh token |
 | `POST` | `/forgot-password` | Public | Request password reset OTP |
 | `POST` | `/reset-password` | Public | Reset password with OTP |
 | `GET` | `/profile` | 🔒 Bearer | Get current user profile |
@@ -246,14 +246,19 @@ wattsapp-backend/
 | `GET` | `/conversations` | 🔒 Bearer | List user conversations (paginated) |
 | `GET` | `/conversations/:id` | 🔒 Bearer | Get conversation by ID |
 | `DELETE` | `/conversations/:id` | 🔒 Bearer | Delete conversation |
-| `POST` | `/:convoId/messages` | 🔒 Bearer | Send text/media message |
-| `POST` | `/:convoId/media` | 🔒 Bearer | Upload media-only message |
-| `GET` | `/:convoId/messages` | 🔒 Bearer | Get messages (paginated + cursor) |
-| `PATCH` | `/:convoId/messages/:id` | 🔒 Bearer | Edit message text |
-| `DELETE` | `/:convoId/messages/:id` | 🔒 Bearer | Delete message |
-| `POST` | `/:convoId/read/:msgId` | 🔒 Bearer | Mark messages as read |
-| `POST` | `/:convoId/delivered/:msgId` | 🔒 Bearer | Mark as delivered |
-| `POST` | `/:convoId/reactions/:msgId` | 🔒 Bearer | Add/remove reaction |
+| `POST` | `/:conversationId` | 🔒 Bearer | Send text/media message |
+| `GET` | `/:conversationId` | 🔒 Bearer | Get messages (paginated + cursor) |
+| `PATCH` | `/:conversationId/:messageId` | 🔒 Bearer | Edit message text |
+| `DELETE` | `/:conversationId/:messageId` | 🔒 Bearer | Delete message |
+| `POST` | `/:conversationId/read` | 🔒 Bearer | Mark conversation messages as read |
+| `POST` | `/:conversationId/:messageId/read` | 🔒 Bearer | Mark one message as read |
+| `POST` | `/:conversationId/:messageId/delivered` | 🔒 Bearer | Mark as delivered |
+| `POST` | `/:conversationId/:messageId/read-receipt` | 🔒 Bearer | Create read receipt |
+| `POST` | `/:conversationId/read-receipts` | 🔒 Bearer | Mark conversation read receipts |
+| `GET` | `/:conversationId/:messageId/receipts` | 🔒 Bearer | Get message receipts |
+| `POST` | `/conversations/:conversationId/media` | 🔒 Bearer | Upload media-only message |
+| `POST` | `/messages/:messageId/reaction` | 🔒 Bearer | Add reaction |
+| `DELETE` | `/messages/:messageId/reaction` | 🔒 Bearer | Remove reaction |
 
 ### Group Routes (`/api/v1/groups/`)
 
@@ -265,9 +270,9 @@ wattsapp-backend/
 | `PATCH` | `/:id` | 🔒 Bearer | Update group (admin only) |
 | `POST` | `/:id/members` | 🔒 Bearer | Add members (admin+) |
 | `DELETE` | `/:id/members/:uid` | 🔒 Bearer | Remove member (admin+) |
-| `PATCH` | `/:id/promote/:uid` | 🔒 Bearer | Promote to admin |
-| `PATCH` | `/:id/demote/:uid` | 🔒 Bearer | Demote from admin |
-| `PATCH` | `/:id/transfer` | 🔒 Bearer | Transfer ownership |
+| `POST` | `/:id/admins/:uid` | 🔒 Bearer | Promote to admin |
+| `DELETE` | `/:id/admins/:uid` | 🔒 Bearer | Demote from admin |
+| `POST` | `/:id/owner` | 🔒 Bearer | Transfer ownership |
 | `POST` | `/:id/leave` | 🔒 Bearer | Leave group |
 
 ### Block Routes (`/api/v1/blocks/`)
@@ -282,7 +287,7 @@ wattsapp-backend/
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| `GET` | `/health` | Health check (DB, Redis, Socket) |
+| `GET` | `/` | Health check |
 
 ---
 
