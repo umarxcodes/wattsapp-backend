@@ -66,9 +66,12 @@ export const register = async (
     };
   }
 
-  await user.save();
+  let isUserSaved = false;
 
   try {
+    await user.save();
+    isUserSaved = true;
+
     const otp = generateOtp();
     await storeOtp(phone, otp);
     await sendOtpSms(phone, otp);
@@ -81,6 +84,18 @@ export const register = async (
 
     if (error.message === "Twilio is not configured") {
       throw new ApiError(503, "OTP SMS service is not configured");
+    }
+
+    if (error instanceof ApiError) {
+      throw error;
+    }
+
+    if (error?.name === "MongoServerError" || error?.name === "MongoError") {
+      throw new ApiError(503, "Database write failed during registration");
+    }
+
+    if (!isUserSaved) {
+      throw new ApiError(500, "Failed to create account during registration");
     }
 
     throw new ApiError(502, "Failed to send verification OTP");
