@@ -73,12 +73,17 @@ export const register = async (
     await storeOtp(phone, otp);
     await sendOtpSms(phone, otp);
     await setOtpResendCooldown(phone);
-  } catch {
+  } catch (error) {
     if (user.avatar?.publicId) {
       await deleteAvatar(user.avatar.publicId).catch(() => {});
     }
     await User.findByIdAndDelete(user._id);
-    throw new ApiError(500, "Failed to send verification OTP");
+
+    if (error.message === "Twilio is not configured") {
+      throw new ApiError(503, "OTP SMS service is not configured");
+    }
+
+    throw new ApiError(502, "Failed to send verification OTP");
   }
 
   return {
