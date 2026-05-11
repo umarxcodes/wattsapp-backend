@@ -4,6 +4,32 @@
 
 ---
 
+## 🌐 Deployed URLs
+
+- Frontend: `https://wattsapp-fronted.vercel.app`
+- Backend: `https://wattsapp-backend.vercel.app`
+- API base URL: `https://wattsapp-backend.vercel.app/api/v1`
+
+Production CORS environment variables should point to the frontend domain:
+
+```bash
+CLIENT_URL=https://wattsapp-fronted.vercel.app
+SOCKET_CORS_ORIGIN=https://wattsapp-fronted.vercel.app
+```
+
+The frontend should call its same-origin proxy with:
+
+```bash
+NEXT_PUBLIC_API_BASE_URL=/api/backend
+BACKEND_API_BASE_URL=https://wattsapp-backend.vercel.app/api/v1
+NEXT_PUBLIC_SOCKET_URL=https://wattsapp-backend.vercel.app
+NEXT_PUBLIC_APP_URL=https://wattsapp-fronted.vercel.app
+```
+
+If `POST /api/v1/auth/register` returns validation errors, the endpoint path is correct. If it returns `500`, the failure is inside the registration service, most commonly MongoDB write access, Redis OTP storage, Twilio SMS configuration, or password hashing.
+
+---
+
 ## 🎯 System Overview
 
 ### Architecture
