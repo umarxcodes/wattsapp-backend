@@ -2,7 +2,9 @@ import cookieParser from "cookie-parser";
 import cors from "cors";
 import express from "express";
 import helmet from "helmet";
+import { connectDB } from "./config/db.config.js";
 import { env } from "./config/env.config.js";
+import { connectRedis } from "./config/redis.config.js";
 import { errorHandler } from "./middlewares/error.middleware.js";
 import { generalLimiter } from "./middlewares/rateLimiter.middleware.js";
 import { authRouter } from "./routes/auth.routes.js";
@@ -58,6 +60,17 @@ app.use(cookieParser());
 // ====*** API Rate Limiting ***=====
 
 app.use("/api", generalLimiter);
+
+// ====*** Serverless Connection Middleware ***=====
+
+app.use("/api", async (req, res, next) => {
+  try {
+    await Promise.all([connectDB(), connectRedis()]);
+    next();
+  } catch (error) {
+    next(error);
+  }
+});
 
 // ====*** Health Route ***=====
 
