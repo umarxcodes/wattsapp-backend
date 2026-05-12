@@ -90,6 +90,14 @@ export const register = async (
       throw error;
     }
 
+    if (error?.name === "ValidationError") {
+      const details = Object.values(error.errors || {}).map((err) => ({
+        path: err.path,
+        message: err.message,
+      }));
+      throw ApiError.badRequest("Registration validation failed", details);
+    }
+
     if (error?.name === "MongoServerError" || error?.name === "MongoError") {
       throw new ApiError(503, "Database write failed during registration");
     }
