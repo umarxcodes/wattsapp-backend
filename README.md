@@ -18,11 +18,10 @@ SOCKET_CORS_ORIGIN=https://wattsapp-fronted.vercel.app
 CORS_ORIGINS=https://wattsapp-fronted.vercel.app,http://localhost:3000
 ```
 
-The frontend should call its same-origin proxy with:
+The frontend should call the backend origin directly with:
 
 ```bash
-NEXT_PUBLIC_API_BASE_URL=/api/backend
-BACKEND_API_BASE_URL=https://wattsapp-backend.vercel.app/api/v1
+NEXT_PUBLIC_API_URL=https://wattsapp-backend.vercel.app
 NEXT_PUBLIC_SOCKET_URL=https://wattsapp-backend.vercel.app
 NEXT_PUBLIC_APP_URL=https://wattsapp-fronted.vercel.app
 ```
