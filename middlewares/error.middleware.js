@@ -18,6 +18,26 @@ export const errorHandler = (error, req, res, next) => {
         message: issue.message,
       }))
     );
+  } else if (
+    error instanceof SyntaxError &&
+    error.status === 400 &&
+    "body" in error
+  ) {
+    normalizedError = ApiError.badRequest("Invalid JSON body", [
+      {
+        path: "body",
+        message:
+          "Request body must be valid JSON. Send raw JSON without wrapping it in extra quotes.",
+      },
+    ]);
+  } else if (error?.type === "entity.parse.failed") {
+    normalizedError = ApiError.badRequest("Invalid JSON body", [
+      {
+        path: "body",
+        message:
+          "Request body must be valid JSON. Send raw JSON without wrapping it in extra quotes.",
+      },
+    ]);
   } else if (error instanceof mongoose.Error.ValidationError) {
     normalizedError = ApiError.badRequest(
       "Validation failed",

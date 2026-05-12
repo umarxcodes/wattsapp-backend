@@ -16,7 +16,7 @@ import { messageRouter } from "./routes/message.routes.js";
 
 const app = express(); // ✅ NOT exported here
 
-const allowedOrigins = [env.CLIENT_URL, env.SOCKET_CORS_ORIGIN];
+const allowedOrigins = new Set(env.CORS_ORIGINS);
 
 app.set("trust proxy", 1);
 
@@ -40,13 +40,15 @@ app.use(
 app.use(
   cors({
     origin: (origin, callback) => {
-      if (!origin || allowedOrigins.includes(origin)) {
+      const normalizedOrigin = origin?.replace(/\/$/, "");
+
+      if (!normalizedOrigin || allowedOrigins.has(normalizedOrigin)) {
         return callback(null, true);
       }
       return callback(new Error("CORS origin is not allowed"));
     },
     credentials: true,
-    methods: ["GET", "POST", "PATCH", "DELETE"],
+    methods: ["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
     allowedHeaders: ["Content-Type", "Authorization"],
   })
 );

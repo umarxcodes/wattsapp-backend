@@ -28,6 +28,7 @@ const envSchema = z.object({
   CLOUDINARY_API_KEY: z.string().optional().default(""),
   CLOUDINARY_API_SECRET: z.string().optional().default(""),
   CLIENT_URL: z.string().url("CLIENT_URL must be a valid URL"),
+  CORS_ORIGINS: z.string().optional().default(""),
   SOCKET_CORS_ORIGIN: z
     .string()
     .url("SOCKET_CORS_ORIGIN must be a valid URL")
@@ -48,8 +49,25 @@ if (!parsedEnv.success) {
 
 // ====*** Environment Export ***=====
 
+const defaultLocalOrigins = [
+  "http://localhost:3000",
+  "http://127.0.0.1:3000",
+  "http://localhost:5000",
+  "http://127.0.0.1:5000",
+];
+
+const corsOrigins = [
+  parsedEnv.data.CLIENT_URL,
+  parsedEnv.data.SOCKET_CORS_ORIGIN,
+  ...parsedEnv.data.CORS_ORIGINS.split(","),
+  ...defaultLocalOrigins,
+]
+  .filter(Boolean)
+  .map((origin) => origin.trim().replace(/\/$/, ""));
+
 export const env = {
   ...parsedEnv.data,
+  CORS_ORIGINS: [...new Set(corsOrigins)],
   SOCKET_CORS_ORIGIN:
     parsedEnv.data.SOCKET_CORS_ORIGIN || parsedEnv.data.CLIENT_URL,
 };

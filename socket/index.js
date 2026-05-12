@@ -46,7 +46,7 @@ export const initializeSocket = (httpServer) => {
 
   ioInstance = new Server(httpServer, {
     cors: {
-      origin: env.SOCKET_CORS_ORIGIN,
+      origin: env.CORS_ORIGINS,
       credentials: true,
     },
     transports: ["websocket", "polling"],

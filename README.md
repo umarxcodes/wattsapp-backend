@@ -15,6 +15,7 @@ Production CORS environment variables should point to the frontend domain:
 ```bash
 CLIENT_URL=https://wattsapp-fronted.vercel.app
 SOCKET_CORS_ORIGIN=https://wattsapp-fronted.vercel.app
+CORS_ORIGINS=https://wattsapp-fronted.vercel.app,http://localhost:3000
 ```
 
 The frontend should call its same-origin proxy with:
@@ -464,6 +465,7 @@ CLOUDINARY_API_SECRET=your_api_secret
 # ======================
 CLIENT_URL=http://localhost:5173
 SOCKET_CORS_ORIGIN=http://localhost:5173
+CORS_ORIGINS=http://localhost:3000,http://localhost:5173
 
 # ======================
 # Optional: Stripe
