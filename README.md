@@ -15,13 +15,13 @@ Production CORS environment variables should point to the frontend domain:
 ```bash
 CLIENT_URL=https://wattsapp-fronted.vercel.app
 SOCKET_CORS_ORIGIN=https://wattsapp-fronted.vercel.app
+CORS_ORIGINS=https://wattsapp-fronted.vercel.app,http://localhost:3000
 ```
 
-The frontend should call its same-origin proxy with:
+The frontend should call the backend origin directly with:
 
 ```bash
-NEXT_PUBLIC_API_BASE_URL=/api/backend
-BACKEND_API_BASE_URL=https://wattsapp-backend.vercel.app/api/v1
+NEXT_PUBLIC_API_URL=https://wattsapp-backend.vercel.app
 NEXT_PUBLIC_SOCKET_URL=https://wattsapp-backend.vercel.app
 NEXT_PUBLIC_APP_URL=https://wattsapp-fronted.vercel.app
 ```
@@ -464,6 +464,7 @@ CLOUDINARY_API_SECRET=your_api_secret
 # ======================
 CLIENT_URL=http://localhost:5173
 SOCKET_CORS_ORIGIN=http://localhost:5173
+CORS_ORIGINS=http://localhost:3000,http://localhost:5173
 
 # ======================
 # Optional: Stripe
