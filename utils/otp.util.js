@@ -29,7 +29,13 @@ const getOtpCooldownKey = (phone) => `otp_cooldown:${phone}`;
  * Generate a 6 digit OTP.
  * @returns {string}
  */
-export const generateOtp = () => crypto.randomInt(100000, 1000000).toString();
+export const generateOtp = () => {
+  // Use fixed OTP in development for easy testing
+  if (env.NODE_ENV === "development") {
+    return "123456";
+  }
+  return crypto.randomInt(100000, 1000000).toString();
+};
 
 // ====*** Send OTP SMS ***=====
 

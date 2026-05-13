@@ -106,20 +106,14 @@ userSchema.virtual("isLocked").get(function () {
 
 // ====*** User Password Hooks ***=====
 
-userSchema.pre("save", async function (next) {
-  if (!this.isModified("password")) {
-    next();
-    return;
-  }
+userSchema.pre("save", async function () {
+  if (!this.isModified("password")) return;
 
-  // Temporarily disable password hashing for testing
-  // this.password = await hashPassword(this.password);
+  this.password = await hashPassword(this.password);
 
   if (!this.isNew) {
     this.passwordChangedAt = new Date();
   }
-
-  next();
 });
 
 // ====*** User Instance Methods ***=====
