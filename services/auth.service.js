@@ -67,21 +67,43 @@ export const register = async (
   }
 
   let isUserSaved = false;
+  let otpGenerated = false;
+  let otpStored = false;
+  let otpSent = false;
+  let cooldownSet = false;
 
   try {
+    // Step 1: Save user to database
     await user.save();
     isUserSaved = true;
 
+    // Step 2: Generate OTP
     const otp = generateOtp();
+    otpGenerated = true;
+
+    // Step 3: Store OTP in Redis
     await storeOtp(phone, otp);
+    otpStored = true;
+
+    // Step 4: Send OTP via SMS (or log in development)
     await sendOtpSms(phone, otp);
+    otpSent = true;
+
+    // Step 5: Set OTP resend cooldown
     await setOtpResendCooldown(phone);
+    cooldownSet = true;
   } catch (error) {
+    // Cleanup: delete avatar if uploaded
     if (user.avatar?.publicId) {
       await deleteAvatar(user.avatar.publicId).catch(() => {});
     }
-    await User.findByIdAndDelete(user._id);
 
+    // Cleanup: delete user if saved
+    if (isUserSaved) {
+      await User.findByIdAndDelete(user._id);
+    }
+
+    // Handle specific known errors with improved messaging
     if (error.message === "Twilio is not configured") {
       throw new ApiError(503, "OTP SMS service is not configured");
     }
@@ -99,14 +121,55 @@ export const register = async (
     }
 
     if (error?.name === "MongoServerError" || error?.name === "MongoError") {
-      throw new ApiError(503, "Database write failed during registration");
+      throw new ApiError(503, "Database operation failed");
     }
 
+    // Handle Redis/connection errors
+    if (
+      error.message?.includes("Redis") ||
+      error.message?.includes("connection") ||
+      error.message?.includes("Network")
+    ) {
+      if (!otpStored) {
+        throw new ApiError(
+          503,
+          "Unable to connect to verification service (Redis)"
+        );
+      }
+      throw new ApiError(503, "Unable to connect to verification service");
+    }
+
+    // Provide specific error messages based on where we failed
     if (!isUserSaved) {
-      throw new ApiError(500, "Failed to create account during registration");
+      throw new ApiError(500, "Failed to create user account");
     }
 
-    throw new ApiError(502, "Failed to send verification OTP");
+    if (!otpGenerated) {
+      throw new ApiError(500, "Failed to generate OTP");
+    }
+
+    if (!otpStored) {
+      throw new ApiError(503, "Failed to store verification code");
+    }
+
+    if (!otpSent) {
+      // In development, this should never fail as it just logs
+      // In production, this would be a Twilio failure
+      if (process.env.NODE_ENV === "production") {
+        throw new ApiError(503, "Failed to send verification SMS");
+      } else {
+        // This would be unexpected in development
+        throw new ApiError(500, "Unexpected error during OTP processing");
+      }
+    }
+
+    if (!cooldownSet) {
+      throw new ApiError(503, "Failed to set verification cooldown");
+    }
+
+    // Generic fallback with logging for unexpected errors
+    console.error("Unexpected registration error:", error);
+    throw new ApiError(502, "Registration failed due to an unexpected error");
   }
 
   return {
