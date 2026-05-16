@@ -38,8 +38,9 @@ const getBearerToken = (req) =>
 
 export const registerController = asyncHandler(async (req, res) => {
   const { phone, countryCode, password, displayName } = req.body;
+  const fullPhone = `${countryCode}${phone.replace(/^0+/, "")}`;
   const result = await register(
-    phone,
+    fullPhone,
     countryCode,
     password,
     displayName,

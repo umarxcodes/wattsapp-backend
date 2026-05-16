@@ -3,6 +3,7 @@ import crypto from "crypto";
 import twilio from "twilio";
 import { redis } from "../config/redis.config.js";
 import { env } from "../config/env.config.js";
+import phoneUtil from "libphonenumber-js";
 
 // ====*** OTP Constants ***=====
 
@@ -37,37 +38,96 @@ export const generateOtp = () => {
   return crypto.randomInt(100000, 1000000).toString();
 };
 
+// ====*** Validate Phone Number ***=====
+
+/**
+ * Validate and format phone number to E.164 format.
+ * @param {string} phone - Phone number with country code
+ * @returns {string|null} - Formatted E.164 phone number or null if invalid
+ */
+export const validatePhoneNumber = (phone) => {
+  try {
+    const parsed = phoneUtil.parsePhoneNumberFromString(phone, undefined, {
+      extended: true,
+    });
+    if (!parsed.isValid()) {
+      return null;
+    }
+    return parsed.format("E.164");
+  } catch (error) {
+    return null;
+  }
+};
+
 // ====*** Send OTP SMS ***=====
 
 /**
  * Send an OTP via Twilio or log it in development.
- * @param {string} phone
- * @param {string} otp
+ * @param {string} phone - E.164 formatted phone number
+ * @param {string} otp - OTP code
  * @returns {Promise<void>}
  */
 export const sendOtpSms = async (phone, otp) => {
+  // Development mode: log OTP instead of sending
   if (env.NODE_ENV !== "production") {
-    console.log(`OTP for ${phone}: ${otp}`);
+    console.log(`[OTP DEV] OTP for ${phone}: ${otp}`);
     return;
   }
 
+  // Production: send via Twilio
   if (!twilioClient || !env.TWILIO_PHONE_NUMBER) {
     throw new Error("Twilio is not configured");
   }
 
-  await twilioClient.messages.create({
-    body: `Your WattsApp verification code is ${otp}. It expires in 5 minutes.`,
-    from: env.TWILIO_PHONE_NUMBER,
-    to: phone,
-  });
+  // Validate phone number format (should already be E.164 from validatePhoneNumber)
+  const e164Phone = validatePhoneNumber(phone);
+  if (!e164Phone) {
+    throw new Error(`Invalid phone number format: ${phone}`);
+  }
+
+  // Retry mechanism for transient failures
+  const maxRetries = 3;
+  const baseDelay = 1000; // 1 second
+
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    try {
+      await twilioClient.messages.create({
+        body: `Your WattsApp verification code is ${otp}. It expires in 5 minutes.`,
+        from: env.TWILIO_PHONE_NUMBER,
+        to: e164Phone,
+      });
+      return; // Success, exit the function
+    } catch (error) {
+      // Check if it's a retryable error (e.g., network issues, rate limiting)
+      const isRetryable =
+        error.code === "ETIMEDOUT" ||
+        error.code === "ECONNRESET" ||
+        error.code === "ENOTFOUND" ||
+        error.status === 429 || // Rate limited
+        (error.status >= 500 && error.status < 600); // Server errors
+
+      if (!isRetryable || attempt === maxRetries - 1) {
+        // If not retryable or last attempt, throw the error
+        console.error(
+          `[OTP ERROR] Failed to send OTP after ${attempt + 1} attempts:`,
+          error
+        );
+        throw error;
+      }
+
+      // Wait before retrying (exponential backoff)
+      const delay = baseDelay * Math.pow(2, attempt);
+      await new Promise((resolve) => setTimeout(resolve, delay));
+    }
+  }
 };
 
 // ====*** Store OTP ***=====
 
 /**
  * Store a hashed OTP and reset attempts.
- * @param {string} phone
- * @param {string} otp
+ * @param {string} phone - E.164 formatted phone number
+ * @param {string} otp - OTP code
  * @returns {Promise<void>}
  */
 export const storeOtp = async (phone, otp) => {
@@ -84,7 +144,7 @@ export const storeOtp = async (phone, otp) => {
 
 /**
  * Determine whether an OTP resend is currently allowed.
- * @param {string} phone
+ * @param {string} phone - E.164 formatted phone number
  * @returns {Promise<boolean>}
  */
 export const canResendOtp = async (phone) => {
@@ -94,7 +154,7 @@ export const canResendOtp = async (phone) => {
 
 /**
  * Start the OTP resend cooldown timer.
- * @param {string} phone
+ * @param {string} phone - E.164 formatted phone number
  * @returns {Promise<void>}
  */
 export const setOtpResendCooldown = async (phone) => {
@@ -108,7 +168,7 @@ export const setOtpResendCooldown = async (phone) => {
 
 /**
  * Get remaining OTP resend cooldown time.
- * @param {string} phone
+ * @param {string} phone - E.164 formatted phone number
  * @returns {Promise<number>}
  */
 export const getOtpResendCooldown = async (phone) => {
@@ -120,8 +180,8 @@ export const getOtpResendCooldown = async (phone) => {
 
 /**
  * Verify an OTP for a phone number.
- * @param {string} phone
- * @param {string} otp
+ * @param {string} phone - E.164 formatted phone number
+ * @param {string} otp - OTP code
  * @returns {Promise<{success: boolean, message: string}>}
  */
 export const verifyOtp = async (phone, otp) => {

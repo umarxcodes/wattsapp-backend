@@ -20,6 +20,7 @@ import {
   setOtpResendCooldown,
   storeOtp,
   verifyOtp,
+  validatePhoneNumber,
 } from "../utils/otp.util.js";
 
 // ====*** Auth Cookie TTL Constant ***=====
@@ -40,14 +41,22 @@ export const register = async (
   displayName,
   avatarFile
 ) => {
-  const existingUser = await User.findOne({ phone });
+  // Validate and format phone number to E.164
+  const fullPhone = `${countryCode}${phone.replace(/^0+/, "")}`;
+  const e164Phone = validatePhoneNumber(fullPhone);
+
+  if (!e164Phone) {
+    throw ApiError.badRequest("Invalid phone number format");
+  }
+
+  const existingUser = await User.findOne({ phone: e164Phone });
 
   if (existingUser) {
     throw ApiError.conflict("Phone number is already registered");
   }
 
   const user = new User({
-    phone,
+    phone: e164Phone,
     countryCode,
     password,
     displayName,
@@ -57,7 +66,7 @@ export const register = async (
     await validateAvatarUpload(avatarFile.buffer);
     const uploadResult = await uploadAvatar(
       avatarFile.buffer,
-      `avatar_${phone.replace(/\W/g, "")}_${Date.now()}`
+      `avatar_${e164Phone.replace(/\W/g, "")}_${Date.now()}`
     );
 
     user.avatar = {
@@ -82,15 +91,15 @@ export const register = async (
     otpGenerated = true;
 
     // Step 3: Store OTP in Redis
-    await storeOtp(phone, otp);
+    await storeOtp(e164Phone, otp);
     otpStored = true;
 
     // Step 4: Send OTP via SMS (or log in development)
-    await sendOtpSms(phone, otp);
+    await sendOtpSms(e164Phone, otp);
     otpSent = true;
 
     // Step 5: Set OTP resend cooldown
-    await setOtpResendCooldown(phone);
+    await setOtpResendCooldown(e164Phone);
     cooldownSet = true;
   } catch (error) {
     // Cleanup: delete avatar if uploaded
